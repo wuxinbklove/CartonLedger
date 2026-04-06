@@ -115,7 +115,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::setupUi()
 {
-    setWindowTitle(QStringLiteral("纸箱对账记账程序"));
+    setWindowTitle(QStringLiteral("博尔纸箱记账"));
     resize(1180, 760);
 
     auto *toolBar = addToolBar(QStringLiteral("工具栏"));
@@ -1212,6 +1212,7 @@ void MainWindow::onExportExcel()
     }
 
     statusBar()->showMessage(QStringLiteral("Excel 已导出到 %1").arg(normalizedFilePath), 5000);
+    QMessageBox::information(this, QStringLiteral("导出成功"), QStringLiteral("Excel 已成功导出到：\n%1").arg(normalizedFilePath));
 }
 
 void MainWindow::onOpenSettings()
@@ -1249,6 +1250,7 @@ void MainWindow::onExportDatabase()
     }
 
     statusBar()->showMessage(QStringLiteral("数据库已导出到 %1").arg(destPath), 5000);
+    QMessageBox::information(this, QStringLiteral("导出成功"), QStringLiteral("数据库已成功导出到：\n%1").arg(destPath));
 }
 
 void MainWindow::onImportDatabase()
