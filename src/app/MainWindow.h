@@ -5,12 +5,16 @@
 #include "data/EntryRepository.h"
 
 #include <QMainWindow>
+#include <QSet>
 #include <QUndoStack>
+#include <QVector>
 
 #include <memory>
 
 class QAction;
+class QEvent;
 class QLabel;
+class QLineEdit;
 class QModelIndex;
 class QPoint;
 class QTableView;
@@ -30,6 +34,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
     void setupUi();
@@ -72,7 +77,13 @@ private:
     void onExportExcel();
     void onExportDatabase();
     void onImportDatabase();
-    void onOpenSettings();
+    void onShowSearchBar();
+    void onHideSearchBar();
+    void onSearchTextChanged(const QString &text);
+    void onSearchNext();
+    void onSearchPrev();
+    void navigateToSearchMatch(int matchIndex);
+    void updateSearchCountLabel();
 
     AppSettings m_settings;
     DatabaseManager m_databaseManager;
@@ -87,6 +98,11 @@ private:
     QAction *m_deleteSheetAction = nullptr;
     QLabel *m_formulaHintLabel = nullptr;
     QLabel *m_summaryLabel = nullptr;
+    QWidget *m_searchBar = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
+    QLabel *m_searchCountLabel = nullptr;
+    QVector<int> m_searchMatchRows;
+    int m_searchCurrentMatch = -1;
     QVector<SheetInfo> m_sheets;
     qint64 m_currentSheetId = -1;
     int m_totalEntryCount = 0;

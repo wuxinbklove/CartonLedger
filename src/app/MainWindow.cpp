@@ -1,6 +1,5 @@
 #include "app/MainWindow.h"
 
-#include "app/SettingsDialog.h"
 #include "core/CalculationService.h"
 #include "export/ExcelExporter.h"
 #include "ui/PasteColumnResolver.h"
@@ -21,12 +20,14 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -144,7 +145,8 @@ void MainWindow::setupUi()
     toolBar->addSeparator();
     auto *exportDatabaseAction = toolBar->addAction(QStringLiteral("导出数据库"));
     auto *importDatabaseAction = toolBar->addAction(QStringLiteral("导入数据库"));
-    auto *settingsAction = toolBar->addAction(QStringLiteral("设置"));
+    toolBar->addSeparator();
+    auto *findAction2 = toolBar->addAction(QStringLiteral("查找"));
 
     auto *centralWidget = new QWidget(this);
     auto *mainLayout = new QVBoxLayout(centralWidget);
@@ -160,6 +162,41 @@ void MainWindow::setupUi()
         "border-radius: 4px;"
         "padding: 6px 8px;"));
     mainLayout->addWidget(m_formulaHintLabel);
+
+    // 查找栏（默认隐藏）
+    m_searchBar = new QWidget(centralWidget);
+    m_searchBar->setVisible(false);
+    m_searchBar->setStyleSheet(QStringLiteral(
+        "background-color: #f0f0f0;"
+        "border-bottom: 1px solid #ccc;"));
+    auto *searchBarLayout = new QHBoxLayout(m_searchBar);
+    searchBarLayout->setContentsMargins(6, 4, 6, 4);
+    searchBarLayout->setSpacing(6);
+    auto *searchLabel = new QLabel(QStringLiteral("查找："), m_searchBar);
+    m_searchEdit = new QLineEdit(m_searchBar);
+    m_searchEdit->setPlaceholderText(QStringLiteral("送货日期、订单号、规格…"));
+    m_searchEdit->setMinimumWidth(220);
+    m_searchEdit->setMaximumWidth(360);
+    m_searchEdit->setClearButtonEnabled(true);
+    m_searchEdit->installEventFilter(this);
+    auto *searchPrevButton = new QPushButton(QStringLiteral("◄ 上一个"), m_searchBar);
+    searchPrevButton->setToolTip(QStringLiteral("上一个 (Shift+Enter)"));
+    auto *searchNextButton = new QPushButton(QStringLiteral("下一个 ►"), m_searchBar);
+    searchNextButton->setToolTip(QStringLiteral("下一个 (Enter)"));
+    m_searchCountLabel = new QLabel(m_searchBar);
+    m_searchCountLabel->setMinimumWidth(90);
+    auto *searchCloseButton = new QPushButton(QStringLiteral("✕"), m_searchBar);
+    searchCloseButton->setFlat(true);
+    searchCloseButton->setFixedWidth(28);
+    searchCloseButton->setToolTip(QStringLiteral("关闭查找 (Esc)"));
+    searchBarLayout->addWidget(searchLabel);
+    searchBarLayout->addWidget(m_searchEdit);
+    searchBarLayout->addWidget(searchPrevButton);
+    searchBarLayout->addWidget(searchNextButton);
+    searchBarLayout->addWidget(m_searchCountLabel);
+    searchBarLayout->addStretch();
+    searchBarLayout->addWidget(searchCloseButton);
+    mainLayout->addWidget(m_searchBar);
 
     m_model = new EntryTableModel(this);
     m_model->setUndoStack(m_undoStack);
@@ -233,7 +270,15 @@ void MainWindow::setupUi()
     connect(exportExcelAction, &QAction::triggered, this, &MainWindow::onExportExcel);
     connect(exportDatabaseAction, &QAction::triggered, this, &MainWindow::onExportDatabase);
     connect(importDatabaseAction, &QAction::triggered, this, &MainWindow::onImportDatabase);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::onOpenSettings);
+    connect(findAction2, &QAction::triggered, this, &MainWindow::onShowSearchBar);
+    auto *findAction = new QAction(this);
+    findAction->setShortcut(QKeySequence::Find);
+    this->addAction(findAction);
+    connect(findAction, &QAction::triggered, this, &MainWindow::onShowSearchBar);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &MainWindow::onSearchTextChanged);
+    connect(searchNextButton, &QPushButton::clicked, this, &MainWindow::onSearchNext);
+    connect(searchPrevButton, &QPushButton::clicked, this, &MainWindow::onSearchPrev);
+    connect(searchCloseButton, &QPushButton::clicked, this, &MainWindow::onHideSearchBar);
     connect(m_addSheetButton, &QToolButton::clicked, this, &MainWindow::onAddSheet);
     connect(m_sheetTabBar, &QTabBar::currentChanged, this, &MainWindow::onCurrentSheetChanged);
     connect(m_sheetTabBar, &QTabBar::tabBarDoubleClicked, this, &MainWindow::onSheetTabDoubleClicked);
@@ -245,6 +290,21 @@ void MainWindow::setupUi()
     connect(m_model, &QAbstractItemModel::rowsInserted, this, &MainWindow::updateSummary);
     connect(m_model, &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateSummary);
     connect(m_model, &QAbstractItemModel::modelReset, this, &MainWindow::updateSummary);
+    connect(m_model, &QAbstractItemModel::modelReset, this, [this]() {
+        if (m_searchBar && m_searchBar->isVisible()) {
+            onSearchTextChanged(m_searchEdit->text());
+        }
+    });
+    connect(m_model, &QAbstractItemModel::rowsInserted, this, [this](const QModelIndex &, int, int) {
+        if (m_searchBar && m_searchBar->isVisible()) {
+            onSearchTextChanged(m_searchEdit->text());
+        }
+    });
+    connect(m_model, &QAbstractItemModel::rowsRemoved, this, [this](const QModelIndex &, int, int) {
+        if (m_searchBar && m_searchBar->isVisible()) {
+            onSearchTextChanged(m_searchEdit->text());
+        }
+    });
 
     refreshSheetTabs();
     updateSummary();
@@ -553,9 +613,9 @@ int MainWindow::insertionRowForNewEntry() const
 StatementEntry MainWindow::defaultEntryForInsertion() const
 {
     StatementEntry entry;
-    entry.quantity = 1;
-    entry.pricePerSquareMeter = m_settings.defaultPricePerSquareMeter();
-    entry.pricePrecision = m_settings.defaultPricePerSquareMeterPrecision();
+    entry.quantity = 0;
+    entry.pricePerSquareMeter = 0.0;
+    entry.pricePrecision = 2;
     entry.formulaType = FormulaType::A;
     return entry;
 }
@@ -722,7 +782,7 @@ void MainWindow::onAddMultipleRows()
         QStringLiteral("插入多行"),
         QStringLiteral("插入行数"),
         5,
-        2,
+        1,
         999,
         1,
         &confirmed);
@@ -1215,14 +1275,6 @@ void MainWindow::onExportExcel()
     QMessageBox::information(this, QStringLiteral("导出成功"), QStringLiteral("Excel 已成功导出到：\n%1").arg(normalizedFilePath));
 }
 
-void MainWindow::onOpenSettings()
-{
-    SettingsDialog dialog(m_settings, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        statusBar()->showMessage(QStringLiteral("设置已保存，新建行会使用新的默认单价"), 4000);
-    }
-}
-
 void MainWindow::onExportDatabase()
 {
     const QString sourcePath = m_databaseManager.databasePath();
@@ -1310,6 +1362,127 @@ void MainWindow::onImportDatabase()
     m_undoStack->clear();
     reloadSheets();
     statusBar()->showMessage(QStringLiteral("数据库导入成功"), 5000);
+}
+
+bool MainWindow::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_searchEdit && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->key() == Qt::Key_Escape) {
+            onHideSearchBar();
+            return true;
+        }
+        if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+            if (keyEvent->modifiers() & Qt::ShiftModifier) {
+                onSearchPrev();
+            } else {
+                onSearchNext();
+            }
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(obj, event);
+}
+
+void MainWindow::onShowSearchBar()
+{
+    m_searchBar->setVisible(true);
+    m_searchEdit->setFocus();
+    m_searchEdit->selectAll();
+    if (!m_searchEdit->text().isEmpty()) {
+        onSearchTextChanged(m_searchEdit->text());
+    }
+}
+
+void MainWindow::onHideSearchBar()
+{
+    m_searchBar->setVisible(false);
+    m_model->clearSearchHighlights();
+    m_searchMatchRows.clear();
+    m_searchCurrentMatch = -1;
+    m_searchCountLabel->clear();
+}
+
+void MainWindow::onSearchTextChanged(const QString &text)
+{
+    m_searchMatchRows.clear();
+    m_searchCurrentMatch = -1;
+
+    const QString needle = text.trimmed();
+    if (needle.isEmpty()) {
+        m_model->clearSearchHighlights();
+        m_searchCountLabel->clear();
+        return;
+    }
+
+    const QVector<StatementEntry> &entries = m_model->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        const StatementEntry &e = entries.at(row);
+        const bool matched =
+            e.deliveryDate.toString(QStringLiteral("yyyy-MM-dd")).contains(needle, Qt::CaseInsensitive)
+            || e.orderNumber.contains(needle, Qt::CaseInsensitive)
+            || CalculationService::formatSpecification(e).contains(needle, Qt::CaseInsensitive);
+        if (matched) {
+            m_searchMatchRows.append(row);
+        }
+    }
+
+    m_model->setSearchHighlightRows(QSet<int>(m_searchMatchRows.begin(), m_searchMatchRows.end()));
+
+    if (!m_searchMatchRows.isEmpty()) {
+        m_searchCurrentMatch = 0;
+        navigateToSearchMatch(m_searchCurrentMatch);
+    }
+
+    updateSearchCountLabel();
+}
+
+void MainWindow::onSearchNext()
+{
+    if (m_searchMatchRows.isEmpty()) {
+        return;
+    }
+    m_searchCurrentMatch = (m_searchCurrentMatch + 1) % m_searchMatchRows.size();
+    navigateToSearchMatch(m_searchCurrentMatch);
+    updateSearchCountLabel();
+}
+
+void MainWindow::onSearchPrev()
+{
+    if (m_searchMatchRows.isEmpty()) {
+        return;
+    }
+    m_searchCurrentMatch = (m_searchCurrentMatch - 1 + m_searchMatchRows.size()) % m_searchMatchRows.size();
+    navigateToSearchMatch(m_searchCurrentMatch);
+    updateSearchCountLabel();
+}
+
+void MainWindow::navigateToSearchMatch(int matchIndex)
+{
+    if (matchIndex < 0 || matchIndex >= m_searchMatchRows.size()) {
+        return;
+    }
+    const int row = m_searchMatchRows.at(matchIndex);
+    const QModelIndex idx = m_model->index(row, EntryTableModel::OrderNumberColumn);
+    m_tableView->scrollTo(idx, QAbstractItemView::EnsureVisible);
+    m_tableView->setCurrentIndex(idx);
+}
+
+void MainWindow::updateSearchCountLabel()
+{
+    if (m_searchMatchRows.isEmpty()) {
+        if (!m_searchEdit->text().trimmed().isEmpty()) {
+            m_searchCountLabel->setText(QStringLiteral("无匹配"));
+            m_searchCountLabel->setStyleSheet(QStringLiteral("color: red;"));
+        } else {
+            m_searchCountLabel->clear();
+            m_searchCountLabel->setStyleSheet(QString());
+        }
+        return;
+    }
+    m_searchCountLabel->setText(
+        QStringLiteral("%1 / %2 个匹配").arg(m_searchCurrentMatch + 1).arg(m_searchMatchRows.size()));
+    m_searchCountLabel->setStyleSheet(QString());
 }
 
 } // namespace cartonledger

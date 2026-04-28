@@ -6,6 +6,7 @@
 #include <QAbstractTableModel>
 #include <QHash>
 #include <QMap>
+#include <QSet>
 #include <QStringList>
 #include <QVector>
 
@@ -49,6 +50,8 @@ public:
     void insertEntry(int row, const StatementEntry &entry);
     void appendEntry(const StatementEntry &entry);
     void setRecentSpecificationTemplates(const QVector<StatementEntry> &entries);
+    void setSearchHighlightRows(const QSet<int> &rows);
+    void clearSearchHighlights();
 
     void setUndoStack(QUndoStack *stack);
     void setSuppressUndo(bool suppress);
@@ -73,6 +76,7 @@ private:
     QVector<StatementEntry> m_persistedTemplates;
     QHash<QString, StatementEntry> m_recentTemplatesBySpecification;
     QStringList m_specificationSuggestions;
+    QSet<int> m_searchHighlightRows;
     bool m_dirty = false;
     QUndoStack *m_undoStack = nullptr;
     bool m_suppressUndo = false;

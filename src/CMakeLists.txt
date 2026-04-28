@@ -2,8 +2,6 @@ add_executable(carton_ledger
     main.cpp
     app/MainWindow.h
     app/MainWindow.cpp
-    app/SettingsDialog.h
-    app/SettingsDialog.cpp
     core/StatementEntry.h
     core/CalculationService.h
     core/CalculationService.cpp

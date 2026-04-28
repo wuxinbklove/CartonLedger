@@ -126,8 +126,14 @@ QVariant EntryTableModel::data(const QModelIndex &index, int role) const
         return QBrush(Qt::darkBlue);
     }
 
-    if (role == Qt::BackgroundRole && isRowDirty(index.row())) {
-        return unsavedRowBackground();
+    if (role == Qt::BackgroundRole) {
+        if (m_searchHighlightRows.contains(index.row())) {
+            return QBrush(QColor(255, 255, 100));
+        }
+        if (isRowDirty(index.row())) {
+            return unsavedRowBackground();
+        }
+        return {};
     }
 
     if (role != Qt::DisplayRole && role != Qt::EditRole) {
@@ -302,7 +308,6 @@ bool EntryTableModel::setData(const QModelIndex &index, const QVariant &value, i
 
         const auto recentTemplate = m_recentTemplatesBySpecification.constFind(entry.specification);
         if (recentTemplate != m_recentTemplatesBySpecification.cend()) {
-            entry.quantity = recentTemplate->quantity >= 0 ? recentTemplate->quantity : entry.quantity;
             entry.pricePerSquareMeter = recentTemplate->pricePerSquareMeter;
             entry.pricePrecision = CalculationService::effectivePricePrecision(*recentTemplate);
             entry.formulaType = recentTemplate->formulaType;
@@ -555,6 +560,25 @@ void EntryTableModel::markAllRowsClean(const QMap<int, qint64> &idMap)
 
     if (!m_entries.isEmpty()) {
         emit dataChanged(index(0, FormulaColumn), index(m_entries.size() - 1, TotalPriceColumn), { Qt::BackgroundRole });
+    }
+}
+
+void EntryTableModel::setSearchHighlightRows(const QSet<int> &rows)
+{
+    m_searchHighlightRows = rows;
+    if (!m_entries.isEmpty()) {
+        emit dataChanged(index(0, 0), index(m_entries.size() - 1, ColumnCount - 1), {Qt::BackgroundRole});
+    }
+}
+
+void EntryTableModel::clearSearchHighlights()
+{
+    if (m_searchHighlightRows.isEmpty()) {
+        return;
+    }
+    m_searchHighlightRows.clear();
+    if (!m_entries.isEmpty()) {
+        emit dataChanged(index(0, 0), index(m_entries.size() - 1, ColumnCount - 1), {Qt::BackgroundRole});
     }
 }
 
