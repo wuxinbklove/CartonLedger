@@ -12,6 +12,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QColor>
+#include <QColorDialog>
 #include <QDate>
 #include <QFile>
 #include <QFileDialog>
@@ -125,6 +127,8 @@ void MainWindow::setupUi()
     auto *addAction = toolBar->addAction(QStringLiteral("新增行"));
     auto *addMultipleAction = toolBar->addAction(QStringLiteral("插入多行"));
     auto *deleteAction = toolBar->addAction(QStringLiteral("删除选中"));
+    auto *setRowBackgroundAction = toolBar->addAction(QStringLiteral("设置背景色"));
+    auto *clearRowBackgroundAction = toolBar->addAction(QStringLiteral("清除背景色"));
     toolBar->addSeparator();
     m_undoStack = new QUndoStack(this);
     auto *undoAction = m_undoStack->createUndoAction(this, QStringLiteral("撤销"));
@@ -206,6 +210,7 @@ void MainWindow::setupUi()
     m_tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableView->setAlternatingRowColors(true);
     m_tableView->setSortingEnabled(false);
+    m_tableView->setContextMenuPolicy(Qt::CustomContextMenu);
     m_specificationDelegate = new SpecificationDelegate(m_tableView);
     m_tableView->setItemDelegateForColumn(EntryTableModel::SpecificationColumn, m_specificationDelegate);
     m_tableView->setItemDelegateForColumn(EntryTableModel::FormulaColumn, new FormulaTypeDelegate(m_tableView));
@@ -262,6 +267,8 @@ void MainWindow::setupUi()
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddRow);
     connect(addMultipleAction, &QAction::triggered, this, &MainWindow::onAddMultipleRows);
     connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteSelectedRows);
+    connect(setRowBackgroundAction, &QAction::triggered, this, &MainWindow::onSetCurrentRowBackgroundColor);
+    connect(clearRowBackgroundAction, &QAction::triggered, this, &MainWindow::onClearCurrentRowBackgroundColor);
     connect(m_addSheetAction, &QAction::triggered, this, &MainWindow::onAddSheet);
     connect(m_renameSheetAction, &QAction::triggered, this, &MainWindow::onRenameCurrentSheet);
     connect(m_deleteSheetAction, &QAction::triggered, this, &MainWindow::onDeleteCurrentSheet);
@@ -286,6 +293,7 @@ void MainWindow::setupUi()
     connect(m_sheetTabBar, &QTabBar::tabMoved, this, &MainWindow::onSheetTabMoved);
     connect(copyAction, &QAction::triggered, this, &MainWindow::onCopySelection);
     connect(pasteAction, &QAction::triggered, this, &MainWindow::onPasteSelection);
+    connect(m_tableView, &QTableView::customContextMenuRequested, this, &MainWindow::onTableContextMenuRequested);
     connect(m_model, &QAbstractItemModel::dataChanged, this, &MainWindow::updateSummary);
     connect(m_model, &QAbstractItemModel::rowsInserted, this, &MainWindow::updateSummary);
     connect(m_model, &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateSummary);
@@ -608,6 +616,21 @@ int MainWindow::insertionRowForNewEntry() const
     }
 
     return m_model->rowCount();
+}
+
+int MainWindow::currentTableRow() const
+{
+    if (m_model == nullptr || m_tableView == nullptr) {
+        return -1;
+    }
+
+    const QModelIndex currentIndex = m_tableView->currentIndex();
+    if (!currentIndex.isValid()) {
+        return -1;
+    }
+
+    const int row = currentIndex.row();
+    return row >= 0 && row < m_model->rowCount() ? row : -1;
 }
 
 StatementEntry MainWindow::defaultEntryForInsertion() const
@@ -1203,6 +1226,75 @@ void MainWindow::onDeleteSelectedRows()
     }
 
     statusBar()->showMessage(QStringLiteral("已删除 %1 行").arg(rowsToDelete.size()), 3000);
+}
+
+void MainWindow::onSetCurrentRowBackgroundColor()
+{
+    const int row = currentTableRow();
+    if (row < 0) {
+        QMessageBox::information(this, QStringLiteral("设置背景色"), QStringLiteral("请先选中要设置背景色的当前行。"));
+        return;
+    }
+
+    QColor initialColor(Qt::white);
+    const QString currentColorHex = normalizeBackgroundColorHex(m_model->entries().at(row).backgroundColorHex);
+    if (!currentColorHex.isEmpty()) {
+        const QColor currentColor(currentColorHex);
+        if (currentColor.isValid()) {
+            initialColor = currentColor;
+        }
+    }
+
+    const QColor selectedColor = QColorDialog::getColor(
+        initialColor,
+        this,
+        QStringLiteral("设置当前行背景色"));
+    if (!selectedColor.isValid()) {
+        return;
+    }
+
+    if (m_model->setRowBackgroundColor(row, selectedColor)) {
+        statusBar()->showMessage(QStringLiteral("已设置第 %1 行背景色").arg(row + 1), 3000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("第 %1 行背景色未改变").arg(row + 1), 3000);
+    }
+}
+
+void MainWindow::onClearCurrentRowBackgroundColor()
+{
+    const int row = currentTableRow();
+    if (row < 0) {
+        QMessageBox::information(this, QStringLiteral("清除背景色"), QStringLiteral("请先选中要清除背景色的当前行。"));
+        return;
+    }
+
+    if (m_model->clearRowBackgroundColor(row)) {
+        statusBar()->showMessage(QStringLiteral("已清除第 %1 行背景色").arg(row + 1), 3000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("第 %1 行没有可清除的背景色").arg(row + 1), 3000);
+    }
+}
+
+void MainWindow::onTableContextMenuRequested(const QPoint &position)
+{
+    if (m_tableView == nullptr) {
+        return;
+    }
+
+    const QModelIndex clickedIndex = m_tableView->indexAt(position);
+    if (clickedIndex.isValid()) {
+        m_tableView->setCurrentIndex(clickedIndex);
+    }
+
+    const bool hasCurrentRow = currentTableRow() >= 0;
+    QMenu menu(this);
+    QAction *setBackgroundAction = menu.addAction(QStringLiteral("设置当前行背景色"));
+    QAction *clearBackgroundAction = menu.addAction(QStringLiteral("清除当前行背景色"));
+    setBackgroundAction->setEnabled(hasCurrentRow);
+    clearBackgroundAction->setEnabled(hasCurrentRow);
+    connect(setBackgroundAction, &QAction::triggered, this, &MainWindow::onSetCurrentRowBackgroundColor);
+    connect(clearBackgroundAction, &QAction::triggered, this, &MainWindow::onClearCurrentRowBackgroundColor);
+    menu.exec(m_tableView->viewport()->mapToGlobal(position));
 }
 
 void MainWindow::onSave()

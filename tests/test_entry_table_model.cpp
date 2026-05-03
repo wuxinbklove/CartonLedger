@@ -3,6 +3,10 @@
 #include "ui/PasteColumnResolver.h"
 #include "ui/models/EntryTableModel.h"
 
+#include <QBrush>
+#include <QColor>
+#include <QUndoStack>
+
 using namespace cartonledger;
 
 class EntryTableModelTest : public QObject {
@@ -21,6 +25,7 @@ private slots:
     void resolvesThreeColumnPasteFromSpecification();
     void usesUnsavedRowsForAutocompleteAndAutoFill();
     void highlightsUnsavedRowsUntilReload();
+    void setsAndClearsRowBackgroundColor();
     void usesUpdatedColumnOrder();
     void showsVerticalHeaderRowNumbers();
     void showsFormulaGuideInHeaderTooltip();
@@ -248,6 +253,50 @@ void EntryTableModelTest::highlightsUnsavedRowsUntilReload()
 
     model.setEntries({savedEntry});
     QVERIFY(!model.data(model.index(0, EntryTableModel::SpecificationColumn), Qt::BackgroundRole).isValid());
+}
+
+void EntryTableModelTest::setsAndClearsRowBackgroundColor()
+{
+    EntryTableModel model;
+    QUndoStack undoStack;
+    model.setUndoStack(&undoStack);
+
+    StatementEntry savedEntry;
+    savedEntry.id = 100;
+    savedEntry.specification = QStringLiteral("100*50");
+    savedEntry.quantity = 10;
+    savedEntry.pricePerSquareMeter = 2.15;
+    savedEntry.pricePrecision = 2;
+    savedEntry.formulaType = FormulaType::C;
+
+    model.setEntries({savedEntry});
+    QVERIFY(model.setRowBackgroundColor(0, QColor(QStringLiteral("#cce5ff"))));
+    QCOMPARE(model.entries().constFirst().backgroundColorHex, QStringLiteral("#CCE5FF"));
+    QVERIFY(model.isDirty());
+
+    const QModelIndex index = model.index(0, EntryTableModel::SpecificationColumn);
+    QBrush brush = qvariant_cast<QBrush>(model.data(index, Qt::BackgroundRole));
+    QCOMPARE(brush.color().name(QColor::HexRgb).toUpper(), QStringLiteral("#CCE5FF"));
+
+    QSet<int> searchRows;
+    searchRows.insert(0);
+    model.setSearchHighlightRows(searchRows);
+    brush = qvariant_cast<QBrush>(model.data(index, Qt::BackgroundRole));
+    QCOMPARE(brush.color().name(QColor::HexRgb).toUpper(), QStringLiteral("#FFFF64"));
+
+    model.clearSearchHighlights();
+    brush = qvariant_cast<QBrush>(model.data(index, Qt::BackgroundRole));
+    QCOMPARE(brush.color().name(QColor::HexRgb).toUpper(), QStringLiteral("#CCE5FF"));
+
+    undoStack.undo();
+    QVERIFY(model.entries().constFirst().backgroundColorHex.isEmpty());
+    QVERIFY(!model.data(model.index(0, EntryTableModel::SpecificationColumn), Qt::BackgroundRole).isValid());
+
+    undoStack.redo();
+    QCOMPARE(model.entries().constFirst().backgroundColorHex, QStringLiteral("#CCE5FF"));
+    QVERIFY(model.clearRowBackgroundColor(0));
+    QVERIFY(model.entries().constFirst().backgroundColorHex.isEmpty());
+    QVERIFY(model.data(model.index(0, EntryTableModel::SpecificationColumn), Qt::BackgroundRole).canConvert<QBrush>());
 }
 
 void EntryTableModelTest::usesUpdatedColumnOrder()

@@ -7,6 +7,8 @@ namespace cartonledger {
 
 class DatabaseManager {
 public:
+    ~DatabaseManager();
+
     bool open(QString *errorMessage = nullptr);
     void close();
     QSqlDatabase database() const;

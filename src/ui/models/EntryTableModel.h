@@ -11,6 +11,7 @@
 #include <QVector>
 
 class QUndoStack;
+class QColor;
 
 namespace cartonledger {
 
@@ -52,6 +53,8 @@ public:
     void setRecentSpecificationTemplates(const QVector<StatementEntry> &entries);
     void setSearchHighlightRows(const QSet<int> &rows);
     void clearSearchHighlights();
+    bool setRowBackgroundColor(int row, const QColor &color);
+    bool clearRowBackgroundColor(int row);
 
     void setUndoStack(QUndoStack *stack);
     void setSuppressUndo(bool suppress);
@@ -65,6 +68,7 @@ public:
 
 private:
     bool isRowDirty(int row) const;
+    bool setRowBackgroundColorHex(int row, const QString &colorHex, const QString &commandText);
     void markRowDirty(int row);
     void rebuildSpecificationTemplates();
     void recalculateRow(int row);

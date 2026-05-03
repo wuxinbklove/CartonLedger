@@ -84,7 +84,7 @@ QVariant EntryTableModel::data(const QModelIndex &index, int role) const
         return {};
     }
 
-    const StatementEntry &entry = m_entries.at(index.row());
+const StatementEntry &entry = m_entries.at(index.row());
     const bool isComputedColumn = (index.column() == UnitPriceColumn && entry.formulaType != FormulaType::Manual)
         || index.column() == TotalPriceColumn;
 
@@ -129,6 +129,10 @@ QVariant EntryTableModel::data(const QModelIndex &index, int role) const
     if (role == Qt::BackgroundRole) {
         if (m_searchHighlightRows.contains(index.row())) {
             return QBrush(QColor(255, 255, 100));
+        }
+        const QString rowBackgroundColor = normalizeBackgroundColorHex(entry.backgroundColorHex);
+        if (!rowBackgroundColor.isEmpty()) {
+            return QBrush(QColor(rowBackgroundColor));
         }
         if (isRowDirty(index.row())) {
             return unsavedRowBackground();
@@ -308,6 +312,7 @@ bool EntryTableModel::setData(const QModelIndex &index, const QVariant &value, i
 
         const auto recentTemplate = m_recentTemplatesBySpecification.constFind(entry.specification);
         if (recentTemplate != m_recentTemplatesBySpecification.cend()) {
+            entry.quantity = recentTemplate->quantity;
             entry.pricePerSquareMeter = recentTemplate->pricePerSquareMeter;
             entry.pricePrecision = CalculationService::effectivePricePrecision(*recentTemplate);
             entry.formulaType = recentTemplate->formulaType;
@@ -455,6 +460,20 @@ void EntryTableModel::setRecentSpecificationTemplates(const QVector<StatementEnt
     }
 }
 
+bool EntryTableModel::setRowBackgroundColor(int row, const QColor &color)
+{
+    if (!color.isValid()) {
+        return false;
+    }
+
+    return setRowBackgroundColorHex(row, color.name(QColor::HexRgb), QStringLiteral("设置行背景色"));
+}
+
+bool EntryTableModel::clearRowBackgroundColor(int row)
+{
+    return setRowBackgroundColorHex(row, QString(), QStringLiteral("清除行背景色"));
+}
+
 void EntryTableModel::rebuildSpecificationTemplates()
 {
     m_recentTemplatesBySpecification.clear();
@@ -497,6 +516,35 @@ bool EntryTableModel::isDirty() const
 bool EntryTableModel::isRowDirty(int row) const
 {
     return row >= 0 && row < m_dirtyRows.size() && m_dirtyRows.at(row);
+}
+
+bool EntryTableModel::setRowBackgroundColorHex(int row, const QString &colorHex, const QString &commandText)
+{
+    if (row < 0 || row >= m_entries.size()) {
+        return false;
+    }
+
+    const QString normalizedColorHex = normalizeBackgroundColorHex(colorHex);
+    if (normalizeBackgroundColorHex(m_entries.at(row).backgroundColorHex) == normalizedColorHex) {
+        return false;
+    }
+
+    ModelSnapshot before;
+    if (m_undoStack && !m_suppressUndo) {
+        before = captureSnapshot();
+    }
+
+    StatementEntry &entry = m_entries[row];
+    entry.backgroundColorHex = normalizedColorHex;
+    markRowDirty(row);
+    markDirty();
+    emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn), {Qt::BackgroundRole});
+
+    if (m_undoStack && !m_suppressUndo) {
+        m_undoStack->push(new ModelStateCommand(this, std::move(before), captureSnapshot(), commandText));
+    }
+
+    return true;
 }
 
 void EntryTableModel::markRowDirty(int row)

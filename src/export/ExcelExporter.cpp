@@ -6,6 +6,7 @@
 #include <QDataStream>
 #include <QDateTime>
 #include <QFile>
+#include <QHash>
 #include <QXmlStreamWriter>
 
 #include <array>
@@ -46,6 +47,18 @@ struct CentralDirectoryEntry {
     quint32 crc32 = 0;
     quint32 size = 0;
     quint32 localHeaderOffset = 0;
+};
+
+struct StyleDefinition {
+    ExportCellType type = ExportCellType::Text;
+    int decimals = 0;
+    QString backgroundColorHex;
+};
+
+struct StyleCatalog {
+    QStringList backgroundColors;
+    QVector<StyleDefinition> coloredStyles;
+    QHash<QString, int> coloredStyleIndexByKey;
 };
 
 template <typename Callback>
@@ -119,15 +132,6 @@ int decimalPlaces(const QString &value)
     return std::clamp(places, 0, kMaxDecimalPlaces);
 }
 
-quint32 styleIndexForCell(const ExportCell &cell)
-{
-    if (cell.type != ExportCellType::Number) {
-        return 0;
-    }
-
-    return static_cast<quint32>(2 + decimalPlaces(cell.value));
-}
-
 QString numberFormatCode(int decimals)
 {
     if (decimals <= 0) {
@@ -135,6 +139,81 @@ QString numberFormatCode(int decimals)
     }
 
     return QStringLiteral("0.") + QString(decimals, QLatin1Char('0'));
+}
+
+QString styleKey(const ExportCell &cell)
+{
+    const QString backgroundColorHex = normalizeBackgroundColorHex(cell.backgroundColorHex);
+    const int decimals = cell.type == ExportCellType::Number ? decimalPlaces(cell.value) : 0;
+    return QStringLiteral("%1:%2:%3")
+        .arg(cell.type == ExportCellType::Number ? QStringLiteral("n") : QStringLiteral("t"))
+        .arg(decimals)
+        .arg(backgroundColorHex);
+}
+
+StyleCatalog buildStyleCatalog(const QVector<ExportRow> &rows)
+{
+    StyleCatalog catalog;
+    for (const ExportRow &row : rows) {
+        for (const ExportCell &cell : row) {
+            const QString backgroundColorHex = normalizeBackgroundColorHex(cell.backgroundColorHex);
+            if (backgroundColorHex.isEmpty()) {
+                continue;
+            }
+
+            if (!catalog.backgroundColors.contains(backgroundColorHex)) {
+                catalog.backgroundColors.append(backgroundColorHex);
+            }
+
+            const QString key = styleKey(cell);
+            if (catalog.coloredStyleIndexByKey.contains(key)) {
+                continue;
+            }
+
+            StyleDefinition definition;
+            definition.type = cell.type;
+            definition.decimals = cell.type == ExportCellType::Number ? decimalPlaces(cell.value) : 0;
+            definition.backgroundColorHex = backgroundColorHex;
+            const int styleIndex = kMaxDecimalPlaces + 3 + catalog.coloredStyles.size();
+            catalog.coloredStyles.append(definition);
+            catalog.coloredStyleIndexByKey.insert(key, styleIndex);
+        }
+    }
+
+    return catalog;
+}
+
+int fillIdForBackground(const QString &backgroundColorHex, const StyleCatalog &catalog)
+{
+    const QString normalized = normalizeBackgroundColorHex(backgroundColorHex);
+    if (normalized.isEmpty()) {
+        return 0;
+    }
+
+    const int colorIndex = catalog.backgroundColors.indexOf(normalized);
+    return colorIndex >= 0 ? colorIndex + 2 : 0;
+}
+
+quint32 styleIndexForCell(const ExportCell &cell, const StyleCatalog &catalog)
+{
+    const QString backgroundColorHex = normalizeBackgroundColorHex(cell.backgroundColorHex);
+    if (backgroundColorHex.isEmpty()) {
+        if (cell.type != ExportCellType::Number) {
+            return 0;
+        }
+
+        return static_cast<quint32>(2 + decimalPlaces(cell.value));
+    }
+
+    return static_cast<quint32>(catalog.coloredStyleIndexByKey.value(styleKey(cell), 0));
+}
+
+QString argbColor(const QString &backgroundColorHex)
+{
+    const QString normalized = normalizeBackgroundColorHex(backgroundColorHex);
+    return normalized.isEmpty()
+        ? QString()
+        : QStringLiteral("FF") + normalized.mid(1);
 }
 
 void writeInlineStringCell(QXmlStreamWriter &xml, const QString &reference, const QString &value, int styleIndex)
@@ -244,9 +323,9 @@ QByteArray buildWorkbookRelationshipsXml()
     });
 }
 
-QByteArray buildStylesXml()
+QByteArray buildStylesXml(const StyleCatalog &catalog)
 {
-    return buildXmlDocument([](QXmlStreamWriter &xml) {
+    return buildXmlDocument([&catalog](QXmlStreamWriter &xml) {
         xml.writeStartElement(QStringLiteral("styleSheet"));
         xml.writeDefaultNamespace(kSpreadsheetNamespace);
 
@@ -277,7 +356,7 @@ QByteArray buildStylesXml()
         xml.writeEndElement();
 
         xml.writeStartElement(QStringLiteral("fills"));
-        xml.writeAttribute(QStringLiteral("count"), QStringLiteral("2"));
+        xml.writeAttribute(QStringLiteral("count"), QString::number(2 + catalog.backgroundColors.size()));
         xml.writeStartElement(QStringLiteral("fill"));
         xml.writeEmptyElement(QStringLiteral("patternFill"));
         xml.writeAttribute(QStringLiteral("patternType"), QStringLiteral("none"));
@@ -286,6 +365,17 @@ QByteArray buildStylesXml()
         xml.writeEmptyElement(QStringLiteral("patternFill"));
         xml.writeAttribute(QStringLiteral("patternType"), QStringLiteral("gray125"));
         xml.writeEndElement();
+        for (const QString &backgroundColorHex : catalog.backgroundColors) {
+            xml.writeStartElement(QStringLiteral("fill"));
+            xml.writeStartElement(QStringLiteral("patternFill"));
+            xml.writeAttribute(QStringLiteral("patternType"), QStringLiteral("solid"));
+            xml.writeEmptyElement(QStringLiteral("fgColor"));
+            xml.writeAttribute(QStringLiteral("rgb"), argbColor(backgroundColorHex));
+            xml.writeEmptyElement(QStringLiteral("bgColor"));
+            xml.writeAttribute(QStringLiteral("indexed"), QStringLiteral("64"));
+            xml.writeEndElement();
+            xml.writeEndElement();
+        }
         xml.writeEndElement();
 
         xml.writeStartElement(QStringLiteral("borders"));
@@ -309,7 +399,7 @@ QByteArray buildStylesXml()
         xml.writeEndElement();
 
         xml.writeStartElement(QStringLiteral("cellXfs"));
-        xml.writeAttribute(QStringLiteral("count"), QString::number(kMaxDecimalPlaces + 3));
+        xml.writeAttribute(QStringLiteral("count"), QString::number(kMaxDecimalPlaces + 3 + catalog.coloredStyles.size()));
         xml.writeEmptyElement(QStringLiteral("xf"));
         xml.writeAttribute(QStringLiteral("numFmtId"), QStringLiteral("0"));
         xml.writeAttribute(QStringLiteral("fontId"), QStringLiteral("0"));
@@ -332,6 +422,22 @@ QByteArray buildStylesXml()
             xml.writeAttribute(QStringLiteral("xfId"), QStringLiteral("0"));
             xml.writeAttribute(QStringLiteral("applyNumberFormat"), QStringLiteral("1"));
         }
+        for (const StyleDefinition &definition : catalog.coloredStyles) {
+            const int decimals = std::clamp(definition.decimals, 0, kMaxDecimalPlaces);
+            const int fillId = fillIdForBackground(definition.backgroundColorHex, catalog);
+            xml.writeEmptyElement(QStringLiteral("xf"));
+            xml.writeAttribute(
+                QStringLiteral("numFmtId"),
+                definition.type == ExportCellType::Number ? QString::number(164 + decimals) : QStringLiteral("0"));
+            xml.writeAttribute(QStringLiteral("fontId"), QStringLiteral("0"));
+            xml.writeAttribute(QStringLiteral("fillId"), QString::number(fillId));
+            xml.writeAttribute(QStringLiteral("borderId"), QStringLiteral("0"));
+            xml.writeAttribute(QStringLiteral("xfId"), QStringLiteral("0"));
+            xml.writeAttribute(QStringLiteral("applyFill"), QStringLiteral("1"));
+            if (definition.type == ExportCellType::Number) {
+                xml.writeAttribute(QStringLiteral("applyNumberFormat"), QStringLiteral("1"));
+            }
+        }
         xml.writeEndElement();
 
         xml.writeStartElement(QStringLiteral("cellStyles"));
@@ -353,9 +459,9 @@ QByteArray buildStylesXml()
     });
 }
 
-QByteArray buildWorksheetXml(const QStringList &headers, const QVector<ExportRow> &rows)
+QByteArray buildWorksheetXml(const QStringList &headers, const QVector<ExportRow> &rows, const StyleCatalog &catalog)
 {
-    return buildXmlDocument([&headers, &rows](QXmlStreamWriter &xml) {
+    return buildXmlDocument([&headers, &rows, &catalog](QXmlStreamWriter &xml) {
         xml.writeStartElement(QStringLiteral("worksheet"));
         xml.writeDefaultNamespace(kSpreadsheetNamespace);
         xml.writeEmptyElement(QStringLiteral("dimension"));
@@ -379,9 +485,9 @@ QByteArray buildWorksheetXml(const QStringList &headers, const QVector<ExportRow
                 const ExportCell &cell = row.at(column);
                 const QString reference = cellReference(rowNumber, column + 1);
                 if (cell.type == ExportCellType::Number) {
-                    writeNumberCell(xml, reference, cell.value, static_cast<int>(styleIndexForCell(cell)));
+                    writeNumberCell(xml, reference, cell.value, static_cast<int>(styleIndexForCell(cell, catalog)));
                 } else {
-                    writeInlineStringCell(xml, reference, cell.value, 0);
+                    writeInlineStringCell(xml, reference, cell.value, static_cast<int>(styleIndexForCell(cell, catalog)));
                 }
             }
 
@@ -541,6 +647,7 @@ bool ExcelExporter::exportEntries(const QString &filePath, const QVector<Stateme
 
     const QStringList headers = exportColumnHeaders();
     const QVector<ExportRow> rows = buildExportRows(entries);
+    const StyleCatalog styleCatalog = buildStyleCatalog(rows);
     const QVector<ZipEntry> archiveEntries = {
         {QStringLiteral("[Content_Types].xml"), buildContentTypesXml()},
         {QStringLiteral("_rels/.rels"), buildRootRelationshipsXml()},
@@ -548,8 +655,8 @@ bool ExcelExporter::exportEntries(const QString &filePath, const QVector<Stateme
         {QStringLiteral("docProps/core.xml"), buildCorePropertiesXml()},
         {QStringLiteral("xl/workbook.xml"), buildWorkbookXml()},
         {QStringLiteral("xl/_rels/workbook.xml.rels"), buildWorkbookRelationshipsXml()},
-        {QStringLiteral("xl/styles.xml"), buildStylesXml()},
-        {QStringLiteral("xl/worksheets/sheet1.xml"), buildWorksheetXml(headers, rows)},
+        {QStringLiteral("xl/styles.xml"), buildStylesXml(styleCatalog)},
+        {QStringLiteral("xl/worksheets/sheet1.xml"), buildWorksheetXml(headers, rows, styleCatalog)},
     };
 
     if (!writeXlsxArchive(file, archiveEntries, errorMessage)) {

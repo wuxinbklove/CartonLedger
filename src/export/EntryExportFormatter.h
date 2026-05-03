@@ -16,6 +16,7 @@ enum class ExportCellType {
 struct ExportCell {
     QString value;
     ExportCellType type = ExportCellType::Text;
+    QString backgroundColorHex;
 };
 
 using ExportRow = QVector<ExportCell>;

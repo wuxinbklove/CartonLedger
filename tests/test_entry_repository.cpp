@@ -12,6 +12,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 
 using namespace cartonledger;
 
@@ -43,6 +44,29 @@ bool execSql(QSqlDatabase database, const QString &sql, QString *errorMessage = 
     return false;
 }
 
+bool tableHasColumn(QSqlDatabase database, const QString &tableName, const QString &columnName)
+{
+    QSqlQuery query(database);
+    if (!query.exec(QStringLiteral("PRAGMA table_info(%1)").arg(tableName))) {
+        return false;
+    }
+
+    while (query.next()) {
+        if (query.value(1).toString() == columnName) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+QString useTemporaryDatabasePath(QTemporaryDir &dir)
+{
+    const QString databasePath = dir.filePath(QStringLiteral("carton-ledger.db"));
+    qputenv("CARTON_LEDGER_DATABASE_PATH", databasePath.toUtf8());
+    return databasePath;
+}
+
 } // namespace
 
 class EntryRepositoryTest : public QObject {
@@ -50,7 +74,9 @@ class EntryRepositoryTest : public QObject {
 
 private slots:
     void migratesLegacySchemaAndPreservesManualOrder();
+    void migratesCurrentSchemaWithoutBackgroundColor();
     void persistsManualUnitPrice();
+    void persistsRowBackgroundColor();
     void separatesEntriesBySheetAndSupportsSheetManagement();
 };
 
@@ -60,8 +86,10 @@ void EntryRepositoryTest::migratesLegacySchemaAndPreservesManualOrder()
     QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
     QCoreApplication::setApplicationName(QStringLiteral("EntryRepositoryMigrationTest"));
 
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
     DatabaseManager databaseManager;
-    const QString databasePath = databaseManager.databasePath();
     QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
     QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
 
@@ -104,6 +132,7 @@ void EntryRepositoryTest::migratesLegacySchemaAndPreservesManualOrder()
 
     QString errorMessage;
     QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
+    QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("background_color")));
 
     EntryRepository repository(databaseManager.database());
     const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
@@ -180,14 +209,97 @@ void EntryRepositoryTest::migratesLegacySchemaAndPreservesManualOrder()
     QVERIFY(afterMigrationEntries.constFirst().orderNumber.isEmpty());
 }
 
+void EntryRepositoryTest::migratesCurrentSchemaWithoutBackgroundColor()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("EntryRepositoryCurrentBackgroundMigrationTest"));
+
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
+    DatabaseManager databaseManager;
+    QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
+    QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
+
+    {
+        QSqlDatabase legacyDatabase = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("current_schema_setup_connection"));
+        legacyDatabase.setDatabaseName(databasePath);
+        QVERIFY2(legacyDatabase.open(), qPrintable(legacyDatabase.lastError().text()));
+
+        QString errorMessage;
+        QVERIFY2(execSql(
+            legacyDatabase,
+            QStringLiteral(
+                "CREATE TABLE sheets ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "name TEXT NOT NULL DEFAULT '',"
+                "display_order INTEGER NOT NULL DEFAULT 0"
+                ")"),
+            &errorMessage),
+            qPrintable(errorMessage));
+        QVERIFY2(execSql(legacyDatabase, QStringLiteral("INSERT INTO sheets (id, name, display_order) VALUES (1, 'Sheet1', 1)"), &errorMessage),
+            qPrintable(errorMessage));
+        QVERIFY2(execSql(
+            legacyDatabase,
+            QStringLiteral(
+                "CREATE TABLE entries ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "sheet_id INTEGER NOT NULL DEFAULT 0,"
+                "delivery_date TEXT DEFAULT '',"
+                "order_number TEXT DEFAULT '',"
+                "specification TEXT NOT NULL DEFAULT '',"
+                "length_cm REAL NOT NULL DEFAULT 0,"
+                "width_cm REAL NOT NULL DEFAULT 0,"
+                "height_cm REAL NOT NULL DEFAULT 0,"
+                "quantity INTEGER NOT NULL DEFAULT 0,"
+                "formula_type TEXT NOT NULL DEFAULT 'A',"
+                "price_per_sqm REAL NOT NULL DEFAULT 2.15,"
+                "price_precision INTEGER NOT NULL DEFAULT -1,"
+                "manual_unit_price REAL NOT NULL DEFAULT 0,"
+                "manual_unit_price_precision INTEGER NOT NULL DEFAULT -1,"
+                "display_order INTEGER NOT NULL DEFAULT 0"
+                ")"),
+            &errorMessage),
+            qPrintable(errorMessage));
+        QVERIFY2(execSql(
+            legacyDatabase,
+            QStringLiteral(
+                "INSERT INTO entries (sheet_id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, display_order) "
+                "VALUES (1, '2026-04-01', 'OLD-BG', '100*50', 100, 50, 0, 2, 'C', 2.15, 2, 0, -1, 1)"),
+            &errorMessage),
+            qPrintable(errorMessage));
+
+        legacyDatabase.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("current_schema_setup_connection"));
+
+    QString errorMessage;
+    QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
+    QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("background_color")));
+
+    EntryRepository repository(databaseManager.database());
+    const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(sheets.size(), 1);
+
+    QVector<StatementEntry> entries = repository.loadEntries(sheets.constFirst().id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.constFirst().orderNumber, QStringLiteral("OLD-BG"));
+    QVERIFY(entries.constFirst().backgroundColorHex.isEmpty());
+}
+
 void EntryRepositoryTest::persistsManualUnitPrice()
 {
     QStandardPaths::setTestModeEnabled(true);
     QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
     QCoreApplication::setApplicationName(QStringLiteral("EntryRepositoryManualPriceTest"));
 
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
     DatabaseManager databaseManager;
-    const QString databasePath = databaseManager.databasePath();
     QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
     QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
 
@@ -225,14 +337,55 @@ void EntryRepositoryTest::persistsManualUnitPrice()
     QCOMPARE(query.value(2).toInt(), 2);
 }
 
+void EntryRepositoryTest::persistsRowBackgroundColor()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("EntryRepositoryBackgroundColorTest"));
+
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
+    DatabaseManager databaseManager;
+    QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
+    QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
+
+    QString errorMessage;
+    QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
+
+    EntryRepository repository(databaseManager.database());
+    const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(sheets.size(), 1);
+
+    StatementEntry coloredEntry = makeEntry(QStringLiteral("ROW-COLOR"), QDate(2026, 4, 21));
+    coloredEntry.backgroundColorHex = QStringLiteral("#cce5ff");
+    QVERIFY2(repository.saveChanges(sheets.constFirst().id, {coloredEntry}, {}, &errorMessage), qPrintable(errorMessage));
+
+    QVector<StatementEntry> entries = repository.loadEntries(sheets.constFirst().id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.constFirst().backgroundColorHex, QStringLiteral("#CCE5FF"));
+
+    entries.first().backgroundColorHex = QStringLiteral("");
+    QVERIFY2(repository.saveChanges(sheets.constFirst().id, entries, {}, &errorMessage), qPrintable(errorMessage));
+
+    const QVector<StatementEntry> clearedEntries = repository.loadEntries(sheets.constFirst().id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(clearedEntries.size(), 1);
+    QVERIFY(clearedEntries.constFirst().backgroundColorHex.isEmpty());
+}
+
 void EntryRepositoryTest::separatesEntriesBySheetAndSupportsSheetManagement()
 {
     QStandardPaths::setTestModeEnabled(true);
     QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
     QCoreApplication::setApplicationName(QStringLiteral("EntryRepositorySheetTest"));
 
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
     DatabaseManager databaseManager;
-    const QString databasePath = databaseManager.databasePath();
     QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
     QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
 

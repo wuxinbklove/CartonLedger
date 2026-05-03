@@ -30,6 +30,7 @@ StatementEntry sampleEntry()
     entry.formulaType = FormulaType::Manual;
     entry.manualUnitPrice = 8.75;
     entry.manualUnitPricePrecision = 2;
+    entry.backgroundColorHex = QStringLiteral("#CCE5FF");
     return entry;
 }
 
@@ -137,10 +138,12 @@ void ExportersTest::exportsXlsxWorkbook()
     QStringList cellReferences;
     QStringList cellTypes;
     QStringList cellValues;
+    QStringList cellStyles;
     {
         QXmlStreamReader sheetXml(zipEntries.value(QStringLiteral("xl/worksheets/sheet1.xml")));
         QString currentReference;
         QString currentType;
+        QString currentStyle;
         QString currentValue;
         bool insideCell = false;
 
@@ -151,6 +154,7 @@ void ExportersTest::exportsXlsxWorkbook()
                     insideCell = true;
                     currentReference = attributeValue(sheetXml.attributes(), QStringLiteral("r"));
                     currentType = attributeValue(sheetXml.attributes(), QStringLiteral("t"));
+                    currentStyle = attributeValue(sheetXml.attributes(), QStringLiteral("s"));
                     currentValue.clear();
                 } else if (insideCell && (sheetXml.name() == QStringLiteral("v") || sheetXml.name() == QStringLiteral("t"))) {
                     currentValue = sheetXml.readElementText();
@@ -159,6 +163,7 @@ void ExportersTest::exportsXlsxWorkbook()
                 cellReferences.append(currentReference);
                 cellTypes.append(currentType);
                 cellValues.append(currentValue);
+                cellStyles.append(currentStyle);
                 insideCell = false;
             }
         }
@@ -224,6 +229,27 @@ void ExportersTest::exportsXlsxWorkbook()
         QString(),
     };
     QCOMPARE(cellTypes, expectedTypes);
+
+    const QStringList expectedStyles = {
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("1"),
+        QStringLiteral("9"),
+        QStringLiteral("9"),
+        QStringLiteral("9"),
+        QStringLiteral("9"),
+        QStringLiteral("10"),
+        QStringLiteral("11"),
+        QStringLiteral("12"),
+        QStringLiteral("12"),
+    };
+    QCOMPARE(cellStyles, expectedStyles);
+    QVERIFY(zipEntries.value(QStringLiteral("xl/styles.xml")).contains("FFCCE5FF"));
 }
 
 QTEST_APPLESS_MAIN(ExportersTest)

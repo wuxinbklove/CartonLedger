@@ -94,6 +94,7 @@ bool migrateEntriesDropDeliveryDateNotNull(QSqlDatabase database, QString *error
             "price_precision INTEGER NOT NULL DEFAULT -1,"
             "manual_unit_price REAL NOT NULL DEFAULT 0,"
             "manual_unit_price_precision INTEGER NOT NULL DEFAULT -1,"
+            "background_color TEXT NOT NULL DEFAULT '',"
             "display_order INTEGER NOT NULL DEFAULT 0"
             ")"))) {
         database.rollback();
@@ -107,7 +108,7 @@ bool migrateEntriesDropDeliveryDateNotNull(QSqlDatabase database, QString *error
             "INSERT INTO entries_v2 "
             "SELECT id, sheet_id, delivery_date, order_number, specification, "
             "length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, "
-            "price_precision, manual_unit_price, manual_unit_price_precision, display_order "
+            "price_precision, manual_unit_price, manual_unit_price_precision, background_color, display_order "
             "FROM entries"))) {
         database.rollback();
         if (errorMessage != nullptr) {
@@ -305,6 +306,11 @@ bool normalizeEntryDisplayOrder(QSqlDatabase database, QString *errorMessage)
 
 } // namespace
 
+DatabaseManager::~DatabaseManager()
+{
+    close();
+}
+
 bool DatabaseManager::open(QString *errorMessage)
 {
     QSqlDatabase database;
@@ -349,6 +355,11 @@ QSqlDatabase DatabaseManager::database() const
 
 QString DatabaseManager::databasePath() const
 {
+    const QString overridePath = qEnvironmentVariable("CARTON_LEDGER_DATABASE_PATH").trimmed();
+    if (!overridePath.isEmpty()) {
+        return overridePath;
+    }
+
     const QString appDataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     return appDataLocation + QStringLiteral("/carton-ledger.db");
 }
@@ -401,6 +412,7 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
         "price_precision INTEGER NOT NULL DEFAULT -1,"
         "manual_unit_price REAL NOT NULL DEFAULT 0,"
         "manual_unit_price_precision INTEGER NOT NULL DEFAULT -1,"
+        "background_color TEXT NOT NULL DEFAULT '',"
         "display_order INTEGER NOT NULL DEFAULT 0"
         ")");
 
@@ -517,6 +529,24 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
     }
 
     schemaError.clear();
+    if (!tableHasColumn(database(), QStringLiteral("entries"), QStringLiteral("background_color"), &schemaError)) {
+        if (!schemaError.isEmpty()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = schemaError;
+            }
+            return false;
+        }
+
+        QSqlQuery alterQuery(database());
+        if (!alterQuery.exec(QStringLiteral("ALTER TABLE entries ADD COLUMN background_color TEXT NOT NULL DEFAULT ''"))) {
+            if (errorMessage != nullptr) {
+                *errorMessage = alterQuery.lastError().text();
+            }
+            return false;
+        }
+    }
+
+    schemaError.clear();
     if (!tableHasColumn(database(), QStringLiteral("entries"), QStringLiteral("sheet_id"), &schemaError)) {
         if (!schemaError.isEmpty()) {
             if (errorMessage != nullptr) {
@@ -591,6 +621,14 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
 
     if (!backfillQuery.exec(QStringLiteral(
             "UPDATE entries SET manual_unit_price_precision = -1 WHERE manual_unit_price_precision IS NULL"))) {
+        if (errorMessage != nullptr) {
+            *errorMessage = backfillQuery.lastError().text();
+        }
+        return false;
+    }
+
+    if (!backfillQuery.exec(QStringLiteral(
+            "UPDATE entries SET background_color = '' WHERE background_color IS NULL"))) {
         if (errorMessage != nullptr) {
             *errorMessage = backfillQuery.lastError().text();
         }

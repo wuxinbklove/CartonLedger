@@ -19,6 +19,7 @@ struct StatementEntry {
     QDate deliveryDate;
     QString orderNumber;
     QString specification;
+    QString backgroundColorHex;
     double lengthCm = 0.0;
     double widthCm = 0.0;
     double heightCm = 0.0;
@@ -29,6 +30,31 @@ struct StatementEntry {
     double manualUnitPrice = 0.0;
     int manualUnitPricePrecision = -1;
 };
+
+inline bool isHexColorDigit(QChar ch)
+{
+    ch = ch.toUpper();
+    return ch.isDigit() || (ch >= QLatin1Char('A') && ch <= QLatin1Char('F'));
+}
+
+inline QString normalizeBackgroundColorHex(const QString &value)
+{
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    if (trimmed.size() != 7 || trimmed.front() != QLatin1Char('#')) {
+        return {};
+    }
+
+    for (int index = 1; index < trimmed.size(); ++index) {
+        if (!isHexColorDigit(trimmed.at(index))) {
+            return {};
+        }
+    }
+
+    return trimmed.toUpper();
+}
 
 inline QString formulaTypeDisplay(FormulaType formulaType)
 {

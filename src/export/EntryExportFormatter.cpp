@@ -26,15 +26,16 @@ QVector<ExportRow> buildExportRows(const QVector<StatementEntry> &entries)
     for (const StatementEntry &entry : entries) {
         const int pricePerSquareMeterDecimals = CalculationService::effectivePricePrecision(entry);
         const int amountDecimals = CalculationService::effectiveAmountPrecision(entry);
+        const QString backgroundColorHex = normalizeBackgroundColorHex(entry.backgroundColorHex);
         rows.append({
-            {formulaTypeDisplay(entry.formulaType), ExportCellType::Text},
-            {entry.deliveryDate.isValid() ? entry.deliveryDate.toString(QStringLiteral("yyyy-MM-dd")) : QString(), ExportCellType::Text},
-            {entry.orderNumber, ExportCellType::Text},
-            {CalculationService::formatSpecification(entry), ExportCellType::Text},
-            {QString::number(entry.quantity), ExportCellType::Number},
-            {CalculationService::formatAmount(entry.pricePerSquareMeter, pricePerSquareMeterDecimals), ExportCellType::Number},
-            {CalculationService::formatAmount(CalculationService::calculateUnitPrice(entry), amountDecimals), ExportCellType::Number},
-            {CalculationService::formatAmount(CalculationService::calculateTotalPrice(entry), amountDecimals), ExportCellType::Number},
+            {formulaTypeDisplay(entry.formulaType), ExportCellType::Text, backgroundColorHex},
+            {entry.deliveryDate.isValid() ? entry.deliveryDate.toString(QStringLiteral("yyyy-MM-dd")) : QString(), ExportCellType::Text, backgroundColorHex},
+            {entry.orderNumber, ExportCellType::Text, backgroundColorHex},
+            {CalculationService::formatSpecification(entry), ExportCellType::Text, backgroundColorHex},
+            {QString::number(entry.quantity), ExportCellType::Number, backgroundColorHex},
+            {CalculationService::formatAmount(entry.pricePerSquareMeter, pricePerSquareMeterDecimals), ExportCellType::Number, backgroundColorHex},
+            {CalculationService::formatAmount(CalculationService::calculateUnitPrice(entry), amountDecimals), ExportCellType::Number, backgroundColorHex},
+            {CalculationService::formatAmount(CalculationService::calculateTotalPrice(entry), amountDecimals), ExportCellType::Number, backgroundColorHex},
         });
     }
 

@@ -51,6 +51,7 @@ private:
     bool switchToSheet(qint64 sheetId, const QString &actionText);
     QModelIndex pasteAnchorIndex() const;
     int insertionRowForNewEntry() const;
+    int currentTableRow() const;
     StatementEntry defaultEntryForInsertion() const;
     void insertNewRows(int count, bool appendToEnd = false);
     void ensureRowsForPaste(int requiredRowCount);
@@ -72,6 +73,9 @@ private:
     void onCopySelection();
     void onPasteSelection();
     void onDeleteSelectedRows();
+    void onSetCurrentRowBackgroundColor();
+    void onClearCurrentRowBackgroundColor();
+    void onTableContextMenuRequested(const QPoint &position);
     void onSave();
     void onReload();
     void onExportExcel();
