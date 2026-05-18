@@ -52,6 +52,7 @@ private:
     QModelIndex pasteAnchorIndex() const;
     int insertionRowForNewEntry() const;
     int currentTableRow() const;
+    QVector<int> selectedTableRows() const;
     StatementEntry defaultEntryForInsertion() const;
     void insertNewRows(int count, bool appendToEnd = false);
     void ensureRowsForPaste(int requiredRowCount);

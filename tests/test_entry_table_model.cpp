@@ -26,6 +26,7 @@ private slots:
     void usesUnsavedRowsForAutocompleteAndAutoFill();
     void highlightsUnsavedRowsUntilReload();
     void setsAndClearsRowBackgroundColor();
+    void setsAndClearsMultipleRowBackgroundColors();
     void usesUpdatedColumnOrder();
     void showsVerticalHeaderRowNumbers();
     void showsFormulaGuideInHeaderTooltip();
@@ -297,6 +298,50 @@ void EntryTableModelTest::setsAndClearsRowBackgroundColor()
     QVERIFY(model.clearRowBackgroundColor(0));
     QVERIFY(model.entries().constFirst().backgroundColorHex.isEmpty());
     QVERIFY(model.data(model.index(0, EntryTableModel::SpecificationColumn), Qt::BackgroundRole).canConvert<QBrush>());
+}
+
+void EntryTableModelTest::setsAndClearsMultipleRowBackgroundColors()
+{
+    EntryTableModel model;
+    QUndoStack undoStack;
+    model.setUndoStack(&undoStack);
+
+    StatementEntry firstEntry;
+    firstEntry.id = 101;
+    firstEntry.specification = QStringLiteral("100*50");
+    firstEntry.quantity = 10;
+    firstEntry.pricePerSquareMeter = 2.15;
+    firstEntry.pricePrecision = 2;
+    firstEntry.formulaType = FormulaType::C;
+
+    StatementEntry secondEntry = firstEntry;
+    secondEntry.id = 102;
+    secondEntry.specification = QStringLiteral("200*80");
+
+    StatementEntry thirdEntry = firstEntry;
+    thirdEntry.id = 103;
+    thirdEntry.specification = QStringLiteral("300*90");
+
+    model.setEntries({firstEntry, secondEntry, thirdEntry});
+
+    QVERIFY(model.setRowsBackgroundColor({2, 0, 2, -1, 99}, QColor(QStringLiteral("#ffe0cc"))));
+    QCOMPARE(model.entries().at(0).backgroundColorHex, QStringLiteral("#FFE0CC"));
+    QVERIFY(model.entries().at(1).backgroundColorHex.isEmpty());
+    QCOMPARE(model.entries().at(2).backgroundColorHex, QStringLiteral("#FFE0CC"));
+    QCOMPARE(undoStack.count(), 1);
+
+    undoStack.undo();
+    QVERIFY(model.entries().at(0).backgroundColorHex.isEmpty());
+    QVERIFY(model.entries().at(2).backgroundColorHex.isEmpty());
+
+    undoStack.redo();
+    QCOMPARE(model.entries().at(0).backgroundColorHex, QStringLiteral("#FFE0CC"));
+    QCOMPARE(model.entries().at(2).backgroundColorHex, QStringLiteral("#FFE0CC"));
+
+    QVERIFY(model.clearRowsBackgroundColor({0, 2}));
+    QVERIFY(model.entries().at(0).backgroundColorHex.isEmpty());
+    QVERIFY(model.entries().at(2).backgroundColorHex.isEmpty());
+    QCOMPARE(undoStack.count(), 2);
 }
 
 void EntryTableModelTest::usesUpdatedColumnOrder()

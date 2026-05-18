@@ -7,6 +7,8 @@
 #include <QColor>
 #include <QUndoStack>
 
+#include <algorithm>
+
 namespace cartonledger {
 
 namespace {
@@ -466,12 +468,26 @@ bool EntryTableModel::setRowBackgroundColor(int row, const QColor &color)
         return false;
     }
 
-    return setRowBackgroundColorHex(row, color.name(QColor::HexRgb), QStringLiteral("设置行背景色"));
+    return setRowsBackgroundColorHex({row}, color.name(QColor::HexRgb), QStringLiteral("设置行背景色"));
 }
 
 bool EntryTableModel::clearRowBackgroundColor(int row)
 {
-    return setRowBackgroundColorHex(row, QString(), QStringLiteral("清除行背景色"));
+    return setRowsBackgroundColorHex({row}, QString(), QStringLiteral("清除行背景色"));
+}
+
+bool EntryTableModel::setRowsBackgroundColor(const QVector<int> &rows, const QColor &color)
+{
+    if (!color.isValid()) {
+        return false;
+    }
+
+    return setRowsBackgroundColorHex(rows, color.name(QColor::HexRgb), QStringLiteral("设置多行背景色"));
+}
+
+bool EntryTableModel::clearRowsBackgroundColor(const QVector<int> &rows)
+{
+    return setRowsBackgroundColorHex(rows, QString(), QStringLiteral("清除多行背景色"));
 }
 
 void EntryTableModel::rebuildSpecificationTemplates()
@@ -520,12 +536,32 @@ bool EntryTableModel::isRowDirty(int row) const
 
 bool EntryTableModel::setRowBackgroundColorHex(int row, const QString &colorHex, const QString &commandText)
 {
-    if (row < 0 || row >= m_entries.size()) {
+    return setRowsBackgroundColorHex({row}, colorHex, commandText);
+}
+
+bool EntryTableModel::setRowsBackgroundColorHex(QVector<int> rows, const QString &colorHex, const QString &commandText)
+{
+    if (rows.isEmpty()) {
         return false;
     }
 
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+
     const QString normalizedColorHex = normalizeBackgroundColorHex(colorHex);
-    if (normalizeBackgroundColorHex(m_entries.at(row).backgroundColorHex) == normalizedColorHex) {
+    QVector<int> changedRows;
+    changedRows.reserve(rows.size());
+    for (const int row : rows) {
+        if (row < 0 || row >= m_entries.size()) {
+            continue;
+        }
+        if (normalizeBackgroundColorHex(m_entries.at(row).backgroundColorHex) == normalizedColorHex) {
+            continue;
+        }
+        changedRows.append(row);
+    }
+
+    if (changedRows.isEmpty()) {
         return false;
     }
 
@@ -534,11 +570,13 @@ bool EntryTableModel::setRowBackgroundColorHex(int row, const QString &colorHex,
         before = captureSnapshot();
     }
 
-    StatementEntry &entry = m_entries[row];
-    entry.backgroundColorHex = normalizedColorHex;
-    markRowDirty(row);
+    for (const int row : changedRows) {
+        StatementEntry &entry = m_entries[row];
+        entry.backgroundColorHex = normalizedColorHex;
+        markRowDirty(row);
+        emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn), {Qt::BackgroundRole});
+    }
     markDirty();
-    emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn), {Qt::BackgroundRole});
 
     if (m_undoStack && !m_suppressUndo) {
         m_undoStack->push(new ModelStateCommand(this, std::move(before), captureSnapshot(), commandText));

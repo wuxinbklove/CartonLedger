@@ -633,6 +633,37 @@ int MainWindow::currentTableRow() const
     return row >= 0 && row < m_model->rowCount() ? row : -1;
 }
 
+QVector<int> MainWindow::selectedTableRows() const
+{
+    QVector<int> rows;
+    if (m_model == nullptr || m_tableView == nullptr) {
+        return rows;
+    }
+
+    QSet<int> seenRows;
+    if (const QItemSelectionModel *selectionModel = m_tableView->selectionModel()) {
+        const QModelIndexList selectedIndexes = selectionModel->selectedIndexes();
+        for (const QModelIndex &index : selectedIndexes) {
+            const int row = index.row();
+            if (!index.isValid() || row < 0 || row >= m_model->rowCount() || seenRows.contains(row)) {
+                continue;
+            }
+            seenRows.insert(row);
+            rows.append(row);
+        }
+    }
+
+    if (rows.isEmpty()) {
+        const int row = currentTableRow();
+        if (row >= 0) {
+            rows.append(row);
+        }
+    }
+
+    std::sort(rows.begin(), rows.end());
+    return rows;
+}
+
 StatementEntry MainWindow::defaultEntryForInsertion() const
 {
     StatementEntry entry;
@@ -1230,14 +1261,19 @@ void MainWindow::onDeleteSelectedRows()
 
 void MainWindow::onSetCurrentRowBackgroundColor()
 {
-    const int row = currentTableRow();
-    if (row < 0) {
-        QMessageBox::information(this, QStringLiteral("设置背景色"), QStringLiteral("请先选中要设置背景色的当前行。"));
+    const QVector<int> rows = selectedTableRows();
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("设置背景色"), QStringLiteral("请先选中要设置背景色的行。"));
         return;
     }
 
+    int referenceRow = currentTableRow();
+    if (!rows.contains(referenceRow)) {
+        referenceRow = rows.constFirst();
+    }
+
     QColor initialColor(Qt::white);
-    const QString currentColorHex = normalizeBackgroundColorHex(m_model->entries().at(row).backgroundColorHex);
+    const QString currentColorHex = normalizeBackgroundColorHex(m_model->entries().at(referenceRow).backgroundColorHex);
     if (!currentColorHex.isEmpty()) {
         const QColor currentColor(currentColorHex);
         if (currentColor.isValid()) {
@@ -1248,30 +1284,42 @@ void MainWindow::onSetCurrentRowBackgroundColor()
     const QColor selectedColor = QColorDialog::getColor(
         initialColor,
         this,
-        QStringLiteral("设置当前行背景色"));
+        rows.size() > 1 ? QStringLiteral("设置选中行背景色") : QStringLiteral("设置当前行背景色"));
     if (!selectedColor.isValid()) {
         return;
     }
 
-    if (m_model->setRowBackgroundColor(row, selectedColor)) {
-        statusBar()->showMessage(QStringLiteral("已设置第 %1 行背景色").arg(row + 1), 3000);
+    if (m_model->setRowsBackgroundColor(rows, selectedColor)) {
+        statusBar()->showMessage(rows.size() > 1
+                                     ? QStringLiteral("已设置 %1 行背景色").arg(rows.size())
+                                     : QStringLiteral("已设置第 %1 行背景色").arg(rows.constFirst() + 1),
+                                 3000);
     } else {
-        statusBar()->showMessage(QStringLiteral("第 %1 行背景色未改变").arg(row + 1), 3000);
+        statusBar()->showMessage(rows.size() > 1
+                                     ? QStringLiteral("选中行背景色未改变")
+                                     : QStringLiteral("第 %1 行背景色未改变").arg(rows.constFirst() + 1),
+                                 3000);
     }
 }
 
 void MainWindow::onClearCurrentRowBackgroundColor()
 {
-    const int row = currentTableRow();
-    if (row < 0) {
-        QMessageBox::information(this, QStringLiteral("清除背景色"), QStringLiteral("请先选中要清除背景色的当前行。"));
+    const QVector<int> rows = selectedTableRows();
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("清除背景色"), QStringLiteral("请先选中要清除背景色的行。"));
         return;
     }
 
-    if (m_model->clearRowBackgroundColor(row)) {
-        statusBar()->showMessage(QStringLiteral("已清除第 %1 行背景色").arg(row + 1), 3000);
+    if (m_model->clearRowsBackgroundColor(rows)) {
+        statusBar()->showMessage(rows.size() > 1
+                                     ? QStringLiteral("已清除选中行背景色")
+                                     : QStringLiteral("已清除第 %1 行背景色").arg(rows.constFirst() + 1),
+                                 3000);
     } else {
-        statusBar()->showMessage(QStringLiteral("第 %1 行没有可清除的背景色").arg(row + 1), 3000);
+        statusBar()->showMessage(rows.size() > 1
+                                     ? QStringLiteral("选中行没有可清除的背景色")
+                                     : QStringLiteral("第 %1 行没有可清除的背景色").arg(rows.constFirst() + 1),
+                                 3000);
     }
 }
 
@@ -1283,15 +1331,26 @@ void MainWindow::onTableContextMenuRequested(const QPoint &position)
 
     const QModelIndex clickedIndex = m_tableView->indexAt(position);
     if (clickedIndex.isValid()) {
-        m_tableView->setCurrentIndex(clickedIndex);
+        const QVector<int> rowsBeforeClick = selectedTableRows();
+        if (rowsBeforeClick.contains(clickedIndex.row())) {
+            m_tableView->setCurrentIndex(clickedIndex);
+        } else if (QItemSelectionModel *selectionModel = m_tableView->selectionModel()) {
+            selectionModel->select(clickedIndex, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            selectionModel->setCurrentIndex(clickedIndex, QItemSelectionModel::NoUpdate);
+        }
     }
 
-    const bool hasCurrentRow = currentTableRow() >= 0;
+    const QVector<int> rows = selectedTableRows();
+    const bool hasSelectedRows = !rows.isEmpty();
     QMenu menu(this);
-    QAction *setBackgroundAction = menu.addAction(QStringLiteral("设置当前行背景色"));
-    QAction *clearBackgroundAction = menu.addAction(QStringLiteral("清除当前行背景色"));
-    setBackgroundAction->setEnabled(hasCurrentRow);
-    clearBackgroundAction->setEnabled(hasCurrentRow);
+    QAction *setBackgroundAction = menu.addAction(rows.size() > 1
+                                                      ? QStringLiteral("设置选中 %1 行背景色").arg(rows.size())
+                                                      : QStringLiteral("设置当前行背景色"));
+    QAction *clearBackgroundAction = menu.addAction(rows.size() > 1
+                                                        ? QStringLiteral("清除选中 %1 行背景色").arg(rows.size())
+                                                        : QStringLiteral("清除当前行背景色"));
+    setBackgroundAction->setEnabled(hasSelectedRows);
+    clearBackgroundAction->setEnabled(hasSelectedRows);
     connect(setBackgroundAction, &QAction::triggered, this, &MainWindow::onSetCurrentRowBackgroundColor);
     connect(clearBackgroundAction, &QAction::triggered, this, &MainWindow::onClearCurrentRowBackgroundColor);
     menu.exec(m_tableView->viewport()->mapToGlobal(position));

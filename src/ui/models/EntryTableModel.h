@@ -55,6 +55,8 @@ public:
     void clearSearchHighlights();
     bool setRowBackgroundColor(int row, const QColor &color);
     bool clearRowBackgroundColor(int row);
+    bool setRowsBackgroundColor(const QVector<int> &rows, const QColor &color);
+    bool clearRowsBackgroundColor(const QVector<int> &rows);
 
     void setUndoStack(QUndoStack *stack);
     void setSuppressUndo(bool suppress);
@@ -69,6 +71,7 @@ public:
 private:
     bool isRowDirty(int row) const;
     bool setRowBackgroundColorHex(int row, const QString &colorHex, const QString &commandText);
+    bool setRowsBackgroundColorHex(QVector<int> rows, const QString &colorHex, const QString &commandText);
     void markRowDirty(int row);
     void rebuildSpecificationTemplates();
     void recalculateRow(int row);
