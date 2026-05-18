@@ -143,6 +143,8 @@ void MainWindow::setupUi()
     m_deleteSheetAction = toolBar->addAction(QStringLiteral("删除标签页"));
     toolBar->addSeparator();
     auto *saveAction = toolBar->addAction(QStringLiteral("保存"));
+    saveAction->setShortcut(QKeySequence::Save);
+    saveAction->setShortcutContext(Qt::WindowShortcut);
     auto *reloadAction = toolBar->addAction(QStringLiteral("重新加载"));
     toolBar->addSeparator();
     auto *exportExcelAction = toolBar->addAction(QStringLiteral("导出 Excel"));
