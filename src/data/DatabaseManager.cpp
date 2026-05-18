@@ -95,6 +95,7 @@ bool migrateEntriesDropDeliveryDateNotNull(QSqlDatabase database, QString *error
             "manual_unit_price REAL NOT NULL DEFAULT 0,"
             "manual_unit_price_precision INTEGER NOT NULL DEFAULT -1,"
             "background_color TEXT NOT NULL DEFAULT '',"
+            "remark TEXT NOT NULL DEFAULT '',"
             "display_order INTEGER NOT NULL DEFAULT 0"
             ")"))) {
         database.rollback();
@@ -108,7 +109,7 @@ bool migrateEntriesDropDeliveryDateNotNull(QSqlDatabase database, QString *error
             "INSERT INTO entries_v2 "
             "SELECT id, sheet_id, delivery_date, order_number, specification, "
             "length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, "
-            "price_precision, manual_unit_price, manual_unit_price_precision, background_color, display_order "
+            "price_precision, manual_unit_price, manual_unit_price_precision, background_color, remark, display_order "
             "FROM entries"))) {
         database.rollback();
         if (errorMessage != nullptr) {
@@ -413,6 +414,7 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
         "manual_unit_price REAL NOT NULL DEFAULT 0,"
         "manual_unit_price_precision INTEGER NOT NULL DEFAULT -1,"
         "background_color TEXT NOT NULL DEFAULT '',"
+        "remark TEXT NOT NULL DEFAULT '',"
         "display_order INTEGER NOT NULL DEFAULT 0"
         ")");
 
@@ -547,6 +549,24 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
     }
 
     schemaError.clear();
+    if (!tableHasColumn(database(), QStringLiteral("entries"), QStringLiteral("remark"), &schemaError)) {
+        if (!schemaError.isEmpty()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = schemaError;
+            }
+            return false;
+        }
+
+        QSqlQuery alterQuery(database());
+        if (!alterQuery.exec(QStringLiteral("ALTER TABLE entries ADD COLUMN remark TEXT NOT NULL DEFAULT ''"))) {
+            if (errorMessage != nullptr) {
+                *errorMessage = alterQuery.lastError().text();
+            }
+            return false;
+        }
+    }
+
+    schemaError.clear();
     if (!tableHasColumn(database(), QStringLiteral("entries"), QStringLiteral("sheet_id"), &schemaError)) {
         if (!schemaError.isEmpty()) {
             if (errorMessage != nullptr) {
@@ -629,6 +649,14 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
 
     if (!backfillQuery.exec(QStringLiteral(
             "UPDATE entries SET background_color = '' WHERE background_color IS NULL"))) {
+        if (errorMessage != nullptr) {
+            *errorMessage = backfillQuery.lastError().text();
+        }
+        return false;
+    }
+
+    if (!backfillQuery.exec(QStringLiteral(
+            "UPDATE entries SET remark = '' WHERE remark IS NULL"))) {
         if (errorMessage != nullptr) {
             *errorMessage = backfillQuery.lastError().text();
         }

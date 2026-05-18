@@ -16,6 +16,7 @@ private slots:
     void autoFillsRecentValuesWhenSpecificationMatches();
     void acceptsExcelStyleDateText();
     void allowsEmptyDeliveryDate();
+    void editsOptionalRemarkAsPlainText();
     void allowsEditingUnitPriceAtAnyTime();
     void defaultsToAOrCWhenNoTemplateMatches();
     void infersFormulaWhenUnitPriceChanges();
@@ -74,6 +75,19 @@ void EntryTableModelTest::allowsEmptyDeliveryDate()
     QVERIFY(model.setData(model.index(0, EntryTableModel::DeliveryDateColumn), QString(), Qt::EditRole));
     QVERIFY(model.data(model.index(0, EntryTableModel::DeliveryDateColumn), Qt::DisplayRole).toString().isEmpty());
     QVERIFY(!model.entries().constFirst().deliveryDate.isValid());
+}
+
+void EntryTableModelTest::editsOptionalRemarkAsPlainText()
+{
+    EntryTableModel model;
+
+    QVERIFY(model.insertRow(0));
+    const QString remark = QStringLiteral("  客户要求加急；送货前电话确认\n第二行备注  ");
+    QVERIFY(model.setData(model.index(0, EntryTableModel::RemarkColumn), remark, Qt::EditRole));
+    QCOMPARE(model.entries().constFirst().remark, remark);
+    QCOMPARE(model.data(model.index(0, EntryTableModel::RemarkColumn), Qt::DisplayRole).toString(), remark);
+    QVERIFY(model.setData(model.index(0, EntryTableModel::RemarkColumn), QString(), Qt::EditRole));
+    QVERIFY(model.entries().constFirst().remark.isEmpty());
 }
 
 void EntryTableModelTest::allowsEditingUnitPriceAtAnyTime()
@@ -351,8 +365,14 @@ void EntryTableModelTest::usesUpdatedColumnOrder()
     QCOMPARE(EntryTableModel::FormulaColumn, 0);
     QCOMPARE(EntryTableModel::DeliveryDateColumn, 1);
     QCOMPARE(EntryTableModel::PricePerSquareMeterColumn, 5);
+    QCOMPARE(EntryTableModel::TotalPriceColumn, 7);
+    QCOMPARE(EntryTableModel::RemarkColumn, 8);
     QCOMPARE(model.headerData(EntryTableModel::PricePerSquareMeterColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("每平方单价"));
     QCOMPARE(model.headerData(EntryTableModel::FormulaColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("计算公式"));
+    QCOMPARE(model.headerData(EntryTableModel::RemarkColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("备注"));
+    QVERIFY(model.insertRow(0));
+    QVERIFY(!(model.flags(model.index(0, EntryTableModel::TotalPriceColumn)) & Qt::ItemIsEditable));
+    QVERIFY(model.flags(model.index(0, EntryTableModel::RemarkColumn)) & Qt::ItemIsEditable);
 }
 
 void EntryTableModelTest::showsVerticalHeaderRowNumbers()

@@ -275,7 +275,7 @@ QVector<StatementEntry> EntryRepository::loadEntries(qint64 sheetId, QString *er
     }
 
     const QString sql = QStringLiteral(
-        "SELECT id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color "
+        "SELECT id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color, remark "
         "FROM entries WHERE sheet_id = ? ORDER BY display_order ASC, id ASC");
 
     QSqlQuery query(m_database);
@@ -304,6 +304,7 @@ QVector<StatementEntry> EntryRepository::loadEntries(qint64 sheetId, QString *er
         entry.manualUnitPrice = query.value(11).toDouble();
         entry.manualUnitPricePrecision = query.value(12).toInt();
         entry.backgroundColorHex = normalizeBackgroundColorHex(query.value(13).toString());
+        entry.remark = query.value(14).toString();
         if (entry.specification.isEmpty()) {
             entry.specification = CalculationService::specificationFromDimensions(entry.lengthCm, entry.widthCm, entry.heightCm);
         }
@@ -345,7 +346,7 @@ QVector<StatementEntry> EntryRepository::loadRecentSpecificationTemplates(QStrin
 {
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "SELECT id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color "
+        "SELECT id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color, remark "
         "FROM entries "
         "WHERE TRIM(COALESCE(specification, '')) <> '' "
         "ORDER BY delivery_date DESC, id DESC"));
@@ -373,6 +374,7 @@ QVector<StatementEntry> EntryRepository::loadRecentSpecificationTemplates(QStrin
         entry.manualUnitPrice = query.value(11).toDouble();
         entry.manualUnitPricePrecision = query.value(12).toInt();
         entry.backgroundColorHex = normalizeBackgroundColorHex(query.value(13).toString());
+        entry.remark = query.value(14).toString();
 
         if (entry.specification.isEmpty()) {
             entry.specification = CalculationService::specificationFromDimensions(entry.lengthCm, entry.widthCm, entry.heightCm);
@@ -462,13 +464,17 @@ bool EntryRepository::saveChanges(qint64 sheetId, const QVector<StatementEntry> 
         if (backgroundColorHex.isEmpty()) {
             backgroundColorHex = QStringLiteral("");
         }
+        QString remark = entry.remark;
+        if (remark.isNull()) {
+            remark = QStringLiteral("");
+        }
         const int displayOrder = row + 1;
 
         if (entry.id < 0) {
             QSqlQuery insertQuery(m_database);
             insertQuery.prepare(QStringLiteral(
-                "INSERT INTO entries (sheet_id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color, display_order) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+                "INSERT INTO entries (sheet_id, delivery_date, order_number, specification, length_cm, width_cm, height_cm, quantity, formula_type, price_per_sqm, price_precision, manual_unit_price, manual_unit_price_precision, background_color, remark, display_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
             insertQuery.addBindValue(sheetId);
             insertQuery.addBindValue(serializeDeliveryDate(entry.deliveryDate));
             insertQuery.addBindValue(entry.orderNumber.trimmed());
@@ -483,6 +489,7 @@ bool EntryRepository::saveChanges(qint64 sheetId, const QVector<StatementEntry> 
             insertQuery.addBindValue(manualUnitPrice);
             insertQuery.addBindValue(manualUnitPricePrecision);
             insertQuery.addBindValue(backgroundColorHex);
+            insertQuery.addBindValue(remark);
             insertQuery.addBindValue(displayOrder);
 
             if (!insertQuery.exec()) {
@@ -496,7 +503,7 @@ bool EntryRepository::saveChanges(qint64 sheetId, const QVector<StatementEntry> 
         } else {
             QSqlQuery updateQuery(m_database);
             updateQuery.prepare(QStringLiteral(
-                "UPDATE entries SET delivery_date = ?, order_number = ?, specification = ?, length_cm = ?, width_cm = ?, height_cm = ?, quantity = ?, formula_type = ?, price_per_sqm = ?, price_precision = ?, manual_unit_price = ?, manual_unit_price_precision = ?, background_color = ?, display_order = ? "
+                "UPDATE entries SET delivery_date = ?, order_number = ?, specification = ?, length_cm = ?, width_cm = ?, height_cm = ?, quantity = ?, formula_type = ?, price_per_sqm = ?, price_precision = ?, manual_unit_price = ?, manual_unit_price_precision = ?, background_color = ?, remark = ?, display_order = ? "
                 "WHERE id = ? AND sheet_id = ?"));
             updateQuery.addBindValue(serializeDeliveryDate(entry.deliveryDate));
             updateQuery.addBindValue(entry.orderNumber.trimmed());
@@ -511,6 +518,7 @@ bool EntryRepository::saveChanges(qint64 sheetId, const QVector<StatementEntry> 
             updateQuery.addBindValue(manualUnitPrice);
             updateQuery.addBindValue(manualUnitPricePrecision);
             updateQuery.addBindValue(backgroundColorHex);
+            updateQuery.addBindValue(remark);
             updateQuery.addBindValue(displayOrder);
             updateQuery.addBindValue(entry.id);
             updateQuery.addBindValue(sheetId);

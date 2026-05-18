@@ -20,6 +20,7 @@ struct StatementEntry {
     QString orderNumber;
     QString specification;
     QString backgroundColorHex;
+    QString remark;
     double lengthCm = 0.0;
     double widthCm = 0.0;
     double heightCm = 0.0;

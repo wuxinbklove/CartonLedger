@@ -28,6 +28,7 @@ public:
         PricePerSquareMeterColumn,
         UnitPriceColumn,
         TotalPriceColumn,
+        RemarkColumn,
         ColumnCount,
     };
 

@@ -178,7 +178,7 @@ void MainWindow::setupUi()
     searchBarLayout->setSpacing(6);
     auto *searchLabel = new QLabel(QStringLiteral("查找："), m_searchBar);
     m_searchEdit = new QLineEdit(m_searchBar);
-    m_searchEdit->setPlaceholderText(QStringLiteral("送货日期、订单号、规格…"));
+    m_searchEdit->setPlaceholderText(QStringLiteral("送货日期、订单号、规格、备注…"));
     m_searchEdit->setMinimumWidth(220);
     m_searchEdit->setMaximumWidth(360);
     m_searchEdit->setClearButtonEnabled(true);
@@ -227,6 +227,7 @@ void MainWindow::setupUi()
     m_tableView->setColumnWidth(EntryTableModel::PricePerSquareMeterColumn, 120);
     m_tableView->setColumnWidth(EntryTableModel::UnitPriceColumn, 110);
     m_tableView->setColumnWidth(EntryTableModel::TotalPriceColumn, 110);
+    m_tableView->setColumnWidth(EntryTableModel::RemarkColumn, 220);
 
     auto *copyAction = new QAction(m_tableView);
     copyAction->setShortcut(QKeySequence::Copy);
@@ -1161,7 +1162,8 @@ void MainWindow::onPasteSelection()
             if (cellText.trimmed().isEmpty()
                 && targetColumn != EntryTableModel::DeliveryDateColumn
                 && targetColumn != EntryTableModel::OrderNumberColumn
-                && targetColumn != EntryTableModel::SpecificationColumn) {
+                && targetColumn != EntryTableModel::SpecificationColumn
+                && targetColumn != EntryTableModel::RemarkColumn) {
                 continue;
             }
 
@@ -1572,7 +1574,8 @@ void MainWindow::onSearchTextChanged(const QString &text)
         const bool matched =
             e.deliveryDate.toString(QStringLiteral("yyyy-MM-dd")).contains(needle, Qt::CaseInsensitive)
             || e.orderNumber.contains(needle, Qt::CaseInsensitive)
-            || CalculationService::formatSpecification(e).contains(needle, Qt::CaseInsensitive);
+            || CalculationService::formatSpecification(e).contains(needle, Qt::CaseInsensitive)
+            || e.remark.contains(needle, Qt::CaseInsensitive);
         if (matched) {
             m_searchMatchRows.append(row);
         }

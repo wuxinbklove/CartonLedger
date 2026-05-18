@@ -76,6 +76,7 @@ private slots:
     void migratesLegacySchemaAndPreservesManualOrder();
     void migratesCurrentSchemaWithoutBackgroundColor();
     void persistsManualUnitPrice();
+    void persistsRemark();
     void persistsRowBackgroundColor();
     void separatesEntriesBySheetAndSupportsSheetManagement();
 };
@@ -133,6 +134,7 @@ void EntryRepositoryTest::migratesLegacySchemaAndPreservesManualOrder()
     QString errorMessage;
     QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
     QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("background_color")));
+    QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("remark")));
 
     EntryRepository repository(databaseManager.database());
     const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
@@ -207,6 +209,7 @@ void EntryRepositoryTest::migratesLegacySchemaAndPreservesManualOrder()
     QCOMPARE(afterMigrationEntries.size(), 1);
     QVERIFY(!afterMigrationEntries.constFirst().deliveryDate.isValid());
     QVERIFY(afterMigrationEntries.constFirst().orderNumber.isEmpty());
+    QVERIFY(afterMigrationEntries.constFirst().remark.isEmpty());
 }
 
 void EntryRepositoryTest::migratesCurrentSchemaWithoutBackgroundColor()
@@ -277,6 +280,7 @@ void EntryRepositoryTest::migratesCurrentSchemaWithoutBackgroundColor()
     QString errorMessage;
     QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
     QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("background_color")));
+    QVERIFY(tableHasColumn(databaseManager.database(), QStringLiteral("entries"), QStringLiteral("remark")));
 
     EntryRepository repository(databaseManager.database());
     const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
@@ -288,6 +292,7 @@ void EntryRepositoryTest::migratesCurrentSchemaWithoutBackgroundColor()
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.constFirst().orderNumber, QStringLiteral("OLD-BG"));
     QVERIFY(entries.constFirst().backgroundColorHex.isEmpty());
+    QVERIFY(entries.constFirst().remark.isEmpty());
 }
 
 void EntryRepositoryTest::persistsManualUnitPrice()
@@ -335,6 +340,52 @@ void EntryRepositoryTest::persistsManualUnitPrice()
     QCOMPARE(query.value(0).toString(), QStringLiteral("手动"));
     QCOMPARE(query.value(1).toDouble(), 8.75);
     QCOMPARE(query.value(2).toInt(), 2);
+}
+
+void EntryRepositoryTest::persistsRemark()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    QCoreApplication::setOrganizationName(QStringLiteral("CartonLedgerTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("EntryRepositoryRemarkTest"));
+
+    QTemporaryDir databaseDir;
+    QVERIFY(databaseDir.isValid());
+    const QString databasePath = useTemporaryDatabasePath(databaseDir);
+    DatabaseManager databaseManager;
+    QVERIFY(QDir().mkpath(QFileInfo(databasePath).absolutePath()));
+    QVERIFY(QFile::remove(databasePath) || !QFile::exists(databasePath));
+
+    QString errorMessage;
+    QVERIFY2(databaseManager.open(&errorMessage), qPrintable(errorMessage));
+
+    EntryRepository repository(databaseManager.database());
+    const QVector<SheetInfo> sheets = repository.loadSheets(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(sheets.size(), 1);
+
+    StatementEntry remarkEntry = makeEntry(QStringLiteral("ROW-REMARK"), QDate(2026, 4, 22));
+    remarkEntry.remark = QStringLiteral("  客户要求加急；送货前电话确认\n第二行备注  ");
+    QVERIFY2(repository.saveChanges(sheets.constFirst().id, {remarkEntry}, {}, &errorMessage), qPrintable(errorMessage));
+
+    QVector<StatementEntry> entries = repository.loadEntries(sheets.constFirst().id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.constFirst().remark, remarkEntry.remark);
+
+    entries.first().remark = QString();
+    QVERIFY2(repository.saveChanges(sheets.constFirst().id, entries, {}, &errorMessage), qPrintable(errorMessage));
+
+    const QVector<StatementEntry> clearedEntries = repository.loadEntries(sheets.constFirst().id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(clearedEntries.size(), 1);
+    QVERIFY(clearedEntries.constFirst().remark.isEmpty());
+
+    QSqlQuery query(databaseManager.database());
+    query.prepare(QStringLiteral("SELECT remark FROM entries WHERE sheet_id = ?"));
+    query.addBindValue(sheets.constFirst().id);
+    QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toString(), QStringLiteral(""));
 }
 
 void EntryRepositoryTest::persistsRowBackgroundColor()

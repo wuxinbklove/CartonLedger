@@ -15,6 +15,7 @@ QStringList exportColumnHeaders()
         QStringLiteral("每平方单价"),
         QStringLiteral("单价"),
         QStringLiteral("总价"),
+        QStringLiteral("备注"),
     };
 }
 
@@ -36,6 +37,7 @@ QVector<ExportRow> buildExportRows(const QVector<StatementEntry> &entries)
             {CalculationService::formatAmount(entry.pricePerSquareMeter, pricePerSquareMeterDecimals), ExportCellType::Number, backgroundColorHex},
             {CalculationService::formatAmount(CalculationService::calculateUnitPrice(entry), amountDecimals), ExportCellType::Number, backgroundColorHex},
             {CalculationService::formatAmount(CalculationService::calculateTotalPrice(entry), amountDecimals), ExportCellType::Number, backgroundColorHex},
+            {entry.remark, ExportCellType::Text, backgroundColorHex},
         });
     }
 

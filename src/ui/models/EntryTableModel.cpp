@@ -86,7 +86,7 @@ QVariant EntryTableModel::data(const QModelIndex &index, int role) const
         return {};
     }
 
-const StatementEntry &entry = m_entries.at(index.row());
+    const StatementEntry &entry = m_entries.at(index.row());
     const bool isComputedColumn = (index.column() == UnitPriceColumn && entry.formulaType != FormulaType::Manual)
         || index.column() == TotalPriceColumn;
 
@@ -117,7 +117,7 @@ const StatementEntry &entry = m_entries.at(index.row());
     }
 
     if (role == Qt::TextAlignmentRole) {
-        if (index.column() == OrderNumberColumn) {
+        if (index.column() == OrderNumberColumn || index.column() == RemarkColumn) {
             return static_cast<int>(Qt::AlignLeft | Qt::AlignVCenter);
         }
 
@@ -171,6 +171,8 @@ const StatementEntry &entry = m_entries.at(index.row());
         return CalculationService::formatAmount(CalculationService::calculateUnitPrice(entry), CalculationService::effectiveAmountPrecision(entry));
     case TotalPriceColumn:
         return CalculationService::formatAmount(CalculationService::calculateTotalPrice(entry), CalculationService::effectiveAmountPrecision(entry));
+    case RemarkColumn:
+        return entry.remark;
     case ColumnCount:
         break;
     }
@@ -215,6 +217,8 @@ QVariant EntryTableModel::headerData(int section, Qt::Orientation orientation, i
         return QStringLiteral("单价");
     case TotalPriceColumn:
         return QStringLiteral("总价");
+    case RemarkColumn:
+        return QStringLiteral("备注");
     case ColumnCount:
         break;
     }
@@ -364,6 +368,11 @@ bool EntryTableModel::setData(const QModelIndex &index, const QVariant &value, i
         break;
     }
     case TotalPriceColumn:
+        return false;
+    case RemarkColumn:
+        entry.remark = value.toString();
+        changed = true;
+        break;
     case ColumnCount:
         return false;
     }
@@ -574,7 +583,7 @@ bool EntryTableModel::setRowsBackgroundColorHex(QVector<int> rows, const QString
         StatementEntry &entry = m_entries[row];
         entry.backgroundColorHex = normalizedColorHex;
         markRowDirty(row);
-        emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn), {Qt::BackgroundRole});
+        emit dataChanged(index(row, FormulaColumn), index(row, ColumnCount - 1), {Qt::BackgroundRole});
     }
     markDirty();
 
@@ -592,12 +601,12 @@ void EntryTableModel::markRowDirty(int row)
     }
 
     m_dirtyRows[row] = true;
-    emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn), {Qt::BackgroundRole});
+    emit dataChanged(index(row, FormulaColumn), index(row, ColumnCount - 1), {Qt::BackgroundRole});
 }
 
 void EntryTableModel::recalculateRow(int row)
 {
-    emit dataChanged(index(row, FormulaColumn), index(row, TotalPriceColumn));
+    emit dataChanged(index(row, FormulaColumn), index(row, ColumnCount - 1));
 }
 
 void EntryTableModel::markDirty()
@@ -645,7 +654,7 @@ void EntryTableModel::markAllRowsClean(const QMap<int, qint64> &idMap)
     m_dirty = false;
 
     if (!m_entries.isEmpty()) {
-        emit dataChanged(index(0, FormulaColumn), index(m_entries.size() - 1, TotalPriceColumn), { Qt::BackgroundRole });
+        emit dataChanged(index(0, FormulaColumn), index(m_entries.size() - 1, ColumnCount - 1), { Qt::BackgroundRole });
     }
 }
 

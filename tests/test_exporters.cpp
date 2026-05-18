@@ -31,6 +31,7 @@ StatementEntry sampleEntry()
     entry.manualUnitPrice = 8.75;
     entry.manualUnitPricePrecision = 2;
     entry.backgroundColorHex = QStringLiteral("#CCE5FF");
+    entry.remark = QStringLiteral("客户要求加急");
     return entry;
 }
 
@@ -180,6 +181,7 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("F1"),
         QStringLiteral("G1"),
         QStringLiteral("H1"),
+        QStringLiteral("I1"),
         QStringLiteral("A2"),
         QStringLiteral("B2"),
         QStringLiteral("C2"),
@@ -188,6 +190,7 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("F2"),
         QStringLiteral("G2"),
         QStringLiteral("H2"),
+        QStringLiteral("I2"),
     };
     QCOMPARE(cellReferences, expectedReferences);
     const QStringList expectedValues = {
@@ -199,6 +202,7 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("每平方单价"),
         QStringLiteral("单价"),
         QStringLiteral("总价"),
+        QStringLiteral("备注"),
         QStringLiteral("手动"),
         QStringLiteral("2026-04-04"),
         QStringLiteral("PO-001"),
@@ -207,6 +211,7 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("2.150"),
         QStringLiteral("8.75"),
         QStringLiteral("61.25"),
+        QStringLiteral("客户要求加急"),
     };
     QCOMPARE(cellValues, expectedValues);
 
@@ -223,14 +228,17 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("inlineStr"),
         QStringLiteral("inlineStr"),
         QStringLiteral("inlineStr"),
+        QStringLiteral("inlineStr"),
         QString(),
         QString(),
         QString(),
         QString(),
+        QStringLiteral("inlineStr"),
     };
     QCOMPARE(cellTypes, expectedTypes);
 
     const QStringList expectedStyles = {
+        QStringLiteral("1"),
         QStringLiteral("1"),
         QStringLiteral("1"),
         QStringLiteral("1"),
@@ -247,6 +255,7 @@ void ExportersTest::exportsXlsxWorkbook()
         QStringLiteral("11"),
         QStringLiteral("12"),
         QStringLiteral("12"),
+        QStringLiteral("9"),
     };
     QCOMPARE(cellStyles, expectedStyles);
     QVERIFY(zipEntries.value(QStringLiteral("xl/styles.xml")).contains("FFCCE5FF"));
